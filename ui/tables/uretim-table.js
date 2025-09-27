@@ -1,51 +1,21 @@
 import { createSimpleTable, showToast } from '../simple-table.js';
+import { productionColumns } from './columns.js';
+import { APP_CONFIG } from '../../config/app-config.js';
 
 // Üretim tablosu konfigürasyonu
 export function createUretimTable(apiBaseUrl) {
   const cfg = {
     apiBaseUrl,
+    // API endpoints used by the table (list must be paged)
     endpoints: {
-      // Use paged endpoint for listing
-      list: '/ProductionTrackingForms/paged',
-      // use create for POSTs
-      create: '/ProductionTrackingForms',
-      activate: '/ProductionTrackingForms/{id}/activate',
-      deactivate: '/ProductionTrackingForms/{id}/deactivate',
-      update: '/ProductionTrackingForms/{id}'
+      list: APP_CONFIG.API.ENDPOINTS.PRODUCTION_TRACKING_FORMS_PAGED,
+      create: APP_CONFIG.API.ENDPOINTS.PRODUCTION_TRACKING_FORMS,
+      activate: APP_CONFIG.API.ENDPOINTS.PRODUCTION_TRACKING_FORMS_ACTIVATE,
+      deactivate: APP_CONFIG.API.ENDPOINTS.PRODUCTION_TRACKING_FORMS_DEACTIVATE,
+      update: APP_CONFIG.API.ENDPOINTS.PRODUCTION_TRACKING_FORMS_UPDATE
     },
-    columns: [
-      { field: 'date', header: 'Tarih', className: 'text-xs', editable: true },
-      { field: 'shift', header: 'Vardiya', editable: true },
-      { field: 'shiftSupervisor', header: 'Vardiya Sorum.', editable: true },
-      { field: 'productCode', header: 'Ürün Kodu', className: 'font-mono', editable: true },
-      { field: 'productName', header: 'Ürün Adı', editable: false },
-      { field: 'operation', header: 'Operasyon', editable: true },
-      { field: 'quantity', header: 'Adet', className: 'text-right', editable: true },
-      { field: 'cycleTime', header: 'Çevrim (sn)', className: 'text-xs text-neutral-400', editable: true },
-      { field: 'addedDateTime', header: 'Eklenme', className: 'text-neutral-400 text-xs', editable: false }
-    ],
-    searchFields: ['productCode', 'productName', 'shift', 'operation', 'shiftSupervisor'],
-    title: 'Üretim Takip Formları',
-    apiBaseUrl,
-    endpoints: {
-      // Use paged endpoint for listing (duplicate section kept in sync)
-      list: '/ProductionTrackingForms/paged',
-      create: '/ProductionTrackingForms',
-      activate: '/ProductionTrackingForms/{id}/activate',
-      deactivate: '/ProductionTrackingForms/{id}/deactivate',
-      update: '/ProductionTrackingForms/{id}'
-    },
-    columns: [
-      { field: 'date', header: 'Tarih', className: 'text-xs', editable: true },
-      { field: 'shift', header: 'Vardiya', editable: true },
-      { field: 'shiftSupervisor', header: 'Vardiya Sorum.', editable: true },
-      { field: 'productCode', header: 'Ürün Kodu', className: 'font-mono', editable: true },
-      { field: 'productName', header: 'Ürün Adı', editable: false },
-      { field: 'operation', header: 'Operasyon', editable: true },
-      { field: 'quantity', header: 'Adet', className: 'text-right', editable: true },
-      { field: 'cycleTime', header: 'Çevrim (sn)', className: 'text-xs text-neutral-400', editable: true },
-      { field: 'addedDateTime', header: 'Eklenme', className: 'text-neutral-400 text-xs', editable: false }
-    ],
+    // Column definitions (shared)
+    columns: productionColumns,
     searchFields: ['productCode', 'productName', 'shift', 'operation', 'shiftSupervisor'],
     title: 'Üretim Takip Formları',
     // Normalize API wrapper: createSimpleTable expects array of records; the loader will pass through result.data when needed
@@ -133,46 +103,13 @@ export function createUretimTable(apiBaseUrl) {
 
   // Create new ProductionTrackingForm on the server
   table.createRecordOnServer = async (formData) => {
-    try {
-      const payload = cfg.formatPayload(formData);
-  const postEndpoint = cfg.endpoints.create || cfg.endpoints.list || '/ProductionTrackingForms';
-  const url = `${apiBaseUrl}${postEndpoint}`;
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`HTTP ${response.status} ${response.statusText} - ${text}`);
-      }
-
-      const result = await response.json();
-
-      // API returns { success, message, data: [...] }
-      let created = null;
-      if (result?.data) {
-        if (Array.isArray(result.data)) created = result.data[0];
-        else created = result.data;
-      } else if (result && result.id) {
-        created = result;
-      }
-
-      if (created) {
-        table.addRecord(created);
-        showToast('Kayıt başarıyla oluşturuldu', 'success');
-        return created;
-      }
-
-      showToast('Kayıt oluşturuldu (sunucudan nesne alınamadı)', 'warning');
-      return result;
-    } catch (err) {
-      console.error('CREATE ERROR:', err);
-      showToast('Oluşturma hatası: ' + err.message, 'error');
-      throw err;
+    // Report-only client: creation is disabled. Keep method for compatibility but suppress network writes.
+    console.warn('Attempt to create ProductionTrackingForm while in report-only mode. Create suppressed. Payload:', formData);
+    if (typeof showToast === 'function') {
+      showToast('Oluşturma devre dışı: Rapor modu etkin.', 'warning');
     }
+    // Throw or return null to indicate nothing created. We return null to avoid breaking callers that expect a falsy value.
+    return null;
   };
 
   return table;

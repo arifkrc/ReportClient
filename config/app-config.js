@@ -38,6 +38,21 @@ export const API_CONFIG = {
     // Other endpoints (legacy)
     PRODUCTION: '/uretim',
     PACKAGING: '/paketleme'
+  ,
+  // Production tracking forms (paged endpoints)
+  PRODUCTION_TRACKING_FORMS: '/ProductionTrackingForms',
+  PRODUCTION_TRACKING_FORMS_PAGED: '/ProductionTrackingForms/paged',
+  PRODUCTION_TRACKING_FORMS_ACTIVATE: '/ProductionTrackingForms/{id}/activate',
+  PRODUCTION_TRACKING_FORMS_DEACTIVATE: '/ProductionTrackingForms/{id}/deactivate',
+  PRODUCTION_TRACKING_FORMS_UPDATE: '/ProductionTrackingForms/{id}'
+  ,
+  // Packings explicit endpoints (useful for table configs)
+  PACKINGS: '/Packings',
+  PACKINGS_BY_ID: '/Packings/{id}',
+  PACKINGS_ACTIVATE: '/Packings/{id}/activate',
+  PACKINGS_DEACTIVATE: '/Packings/{id}/deactivate'
+  ,
+  PACKINGS_PAGED: '/Packings/paged'
   }
 };
 
@@ -172,6 +187,8 @@ export const ConfigUtils = {
 // Named export as APP_CONFIG
 export const APP_CONFIG = {
   API: API_CONFIG,
+  // Global flag: when true the client must not perform any write operations
+  READ_ONLY: true,
   CACHE: CACHE_CONFIG,
   UI: UI_CONFIG,
   BUSINESS: BUSINESS_CONFIG,

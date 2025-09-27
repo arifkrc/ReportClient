@@ -1,4 +1,6 @@
 import { createSimpleTable } from '../simple-table.js';
+import { APP_CONFIG } from '../../config/app-config.js';
+import { cycleTimesColumns } from './columns.js';
 
 // Çevrim Zamanları tablosu konfigürasyonu
 export function createCycleTimesTable(apiBaseUrl) {
@@ -8,9 +10,9 @@ export function createCycleTimesTable(apiBaseUrl) {
     try {
       console.log('📡 Fetching operations directly from API...');
       console.log('🔗 API Base URL:', apiBaseUrl);
-      console.log('🎯 Full endpoint URL:', `${apiBaseUrl}/Operations`);
+  console.log('🎯 Full endpoint URL:', `${apiBaseUrl}${APP_CONFIG.API.ENDPOINTS.OPERATIONS}`);
       
-      const response = await fetch(`${apiBaseUrl}/Operations`);
+  const response = await fetch(`${apiBaseUrl}${APP_CONFIG.API.ENDPOINTS.OPERATIONS}`);
       
       console.log('📊 Response status:', response.status);
       console.log('📊 Response ok:', response.ok);
@@ -90,49 +92,12 @@ export function createCycleTimesTable(apiBaseUrl) {
   return createSimpleTable({
     apiBaseUrl,
     endpoints: {
-      list: '/CycleTimes',
-      activate: '/CycleTimes/{id}/activate',
-      deactivate: '/CycleTimes/{id}/deactivate',
-      update: '/CycleTimes/{id}'
+      list: APP_CONFIG.API.ENDPOINTS.CYCLE_TIMES,
+      activate: APP_CONFIG.API.ENDPOINTS.CYCLE_TIMES_BY_ID + '/activate',
+      deactivate: APP_CONFIG.API.ENDPOINTS.CYCLE_TIMES_BY_ID + '/deactivate',
+      update: APP_CONFIG.API.ENDPOINTS.CYCLE_TIMES_BY_ID
     },
-    columns: [
-      { 
-        field: 'productCode', 
-        title: 'Ürün Kodu', 
-        editable: false,
-        width: '150px'
-      },
-      { 
-        field: 'productName', 
-        title: 'Ürün Adı', 
-        editable: false,
-        width: '200px'
-      },
-      { 
-        field: 'operationShortCode', 
-        title: 'Op. Kodu', 
-        editable: false,
-        width: '100px'
-      },
-      { 
-        field: 'operationName', 
-        title: 'Operasyon', 
-        editable: true,
-        width: '250px'
-      },
-      { 
-        field: 'second', 
-        title: 'Süre (sn)', 
-        editable: true,
-        width: '120px'
-      },
-      { 
-        field: 'isActive', 
-        title: 'Durum', 
-        editable: false,
-        width: '100px'
-      }
-    ],
+    columns: cycleTimesColumns,
     searchFields: ['operationShortCode', 'operationName', 'productCode', 'productName', 'second'],
     title: 'Çevrim Zamanları',
     emptyMessage: 'Çevrim zamanı kaydı bulunamadı',
@@ -251,72 +216,13 @@ export function createCycleTimesTable(apiBaseUrl) {
     
     // Custom update handler
     customUpdateHandler: async (recordId, editableFields, originalRecord, apiBaseUrl, showToast, reloadData) => {
-      try {
-        console.log('🔄 CycleTimes UPDATE - Record ID:', recordId);
-        console.log('🔄 CycleTimes UPDATE - Editable Fields:', editableFields);
-        console.log('🔄 CycleTimes UPDATE - Original Record:', originalRecord);
-        
-        // Form verilerini hazırla
-        const operationSelect = editableFields.operationName;
-        const secondInput = editableFields.second;
-        
-        // Operasyon bilgilerini çıkar
-        let operationId = null;
-        let operationName = '';
-        let operationShortCode = '';
-        
-        if (operationSelect && operationSelect.value) {
-          operationId = operationSelect.value;
-          const selectedOption = operationSelect.options[operationSelect.selectedIndex];
-          if (selectedOption) {
-            operationName = selectedOption.textContent;
-            operationShortCode = selectedOption.textContent.split(' - ')[0];
-          }
-        }
-        
-        const updateData = {
-          id: recordId,
-          productId: originalRecord.productId,
-          productCode: originalRecord.productCode,
-          productName: originalRecord.productName,
-          operationId: operationId,
-          operationName: operationName,
-          operationShortCode: operationShortCode,
-          second: parseFloat(secondInput.value) || 0,
-          isActive: originalRecord.isActive
-        };
-        
-        console.log('📤 CycleTimes UPDATE - Data being sent:', updateData);
-        
-        // API'ye PUT request gönder
-        const response = await fetch(`${apiBaseUrl}/CycleTimes/${recordId}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(updateData)
-        });
-        
-        console.log('📊 CycleTimes UPDATE - Response status:', response.status);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          throw new Error(`HTTP ${response.status}: ${errorText}`);
-        }
-        
-        const result = await response.json();
-        console.log('✅ CycleTimes UPDATE SUCCESS:', result);
-        
-        showToast('Çevrim zamanı başarıyla güncellendi', 'success');
-        await reloadData(); // Tabloyu yenile
-        
-        return true;
-        
-      } catch (error) {
-        console.error('❌ CycleTimes UPDATE ERROR:', error);
-        showToast('Güncelleme hatası: ' + error.message, 'error');
-        return false;
+      // Report-only client: updates are disabled. Keep handler for future re-enable.
+      console.warn('Attempt to update cycle time while in report-only mode. Update suppressed. RecordId:', recordId);
+      if (typeof showToast === 'function') {
+        showToast('Güncelleme devre dışı: Rapor modu etkin.', 'warning');
       }
+      // Return false to indicate update did not happen.
+      return false;
     }
   });
 }

@@ -1,4 +1,6 @@
 import { createSimpleTable } from '../simple-table.js';
+import { APP_CONFIG } from '../../config/app-config.js';
+import { productsColumns } from './columns.js';
 
 // Ürün kodu ve tip eşleştirme sistemi
 function getProductTypeFromCode(productCode) {
@@ -66,47 +68,12 @@ export function createProductsTable(apiBaseUrl) {
   return createSimpleTable({
     apiBaseUrl,
     endpoints: {
-      list: '/Products',
-      activate: '/Products/{id}/activate',
-      deactivate: '/Products/{id}/deactivate',
-      update: '/Products/{id}'
+      list: APP_CONFIG.API.ENDPOINTS.PRODUCTS,
+      activate: APP_CONFIG.API.ENDPOINTS.PRODUCTS_ACTIVATE,
+      deactivate: APP_CONFIG.API.ENDPOINTS.PRODUCTS_DEACTIVATE,
+      update: APP_CONFIG.API.ENDPOINTS.PRODUCTS_BY_ID
     },
-    columns: [
-      {
-        field: 'productCode',
-        header: 'Ürün Kodu',
-        className: 'font-mono',
-        editable: true
-      },
-      {
-        field: 'name',
-        header: 'Ürün Adı',
-        editable: true
-      },
-      {
-        field: 'type',
-        header: 'Ürün Tipi',
-        editable: true
-      },
-      {
-        field: 'addedDateTime',
-        header: 'Eklenme',
-        className: 'text-neutral-400 text-xs',
-        editable: false
-      },
-      {
-        field: 'description',
-        header: 'Açıklama',
-        className: 'text-sm max-w-xs',
-        editable: true
-      },
-      {
-        field: 'lastOperationName',
-        header: 'Son İşlem',
-        className: 'text-neutral-400 text-xs',
-        editable: true
-      }
-    ],
+    columns: productsColumns,
     searchFields: ['productCode', 'name', 'type', 'description', 'addedDateTime'],
     title: 'Tanımlı Ürünler',
     
@@ -204,7 +171,7 @@ export function createProductsTable(apiBaseUrl) {
       };
     },
     
-    // All update/create/delete behavior removed for report-only client
+  // Read-only: update/create/delete disabled
   });
 }
 

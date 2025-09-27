@@ -520,7 +520,8 @@ export function createSimpleTable(config) {
     columns.forEach(col => {
       const headerText = col.title || col.header || col.field || 'N/A';
       const sortable = col.sortable === false ? false : true;
-      const sortIndicator = sortable && sortField === col.field ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '';
+      // Show indicator only when sorting is active on this field
+      const sortIndicator = (sortable && sortField && sortField === col.field) ? (sortDir === 'desc' ? ' ▼' : ' ▲') : '';
       const headerClass = `px-4 py-3 text-left text-xs font-bold text-neutral-300 uppercase tracking-wider ${col.className || ''}`;
       tableHTML += `<th class="${headerClass}" data-sortable="${sortable ? '1' : '0'}" data-field="${col.field}">${headerText}${sortIndicator}</th>`;
     });
@@ -570,15 +571,34 @@ export function createSimpleTable(config) {
       const sortable = h.getAttribute('data-sortable') === '1';
       if (!sortable) return;
       h.style.cursor = 'pointer';
+      // implement 3-state cycle: none -> asc -> desc -> none
       h.addEventListener('click', () => {
-        if (sortField === field) {
-          sortDir = sortDir === 'desc' ? 'asc' : 'desc';
-        } else {
+        if (sortField !== field) {
+          // start new sort cycle on this field
           sortField = field;
           sortDir = 'asc';
+        } else {
+          // same field clicked, cycle the direction: asc -> desc -> none
+          if (sortDir === 'asc') {
+            sortDir = 'desc';
+          } else if (sortDir === 'desc') {
+            // third touch: clear sorting
+            sortField = null;
+            sortDir = null;
+          } else {
+            // was none for some reason, start asc
+            sortDir = 'asc';
+          }
         }
-        // server-side sort possible via reload params
-        loadData({ page: currentPage, pageSize, sortField, sortDir });
+
+        // server-side sort: if no sorting set, request without sort params to clear server-side ordering
+        const reloadParams = { page: currentPage, pageSize };
+        if (sortField && sortDir) {
+          reloadParams.sortField = sortField;
+          reloadParams.sortDir = sortDir;
+        }
+
+        loadData(reloadParams);
       });
     });
 
@@ -727,7 +747,7 @@ export function createSimpleTable(config) {
     container.nextPage = () => { if (currentPage < total) { currentPage++; renderTable(); } };
   }
 
-  // All editing and toggling removed for report-only client
+  // Read-only mode: editing and toggle controls are suppressed
 
   // Operasyon dropdown'u için fallback yükleme fonksiyonu
   // Public API
@@ -774,6 +794,31 @@ export function createSimpleTable(config) {
     } catch (e) { /* ignore */ }
     try { container.innerHTML = ''; } catch (e) {}
   };
+
+  // Guarded write-affordances: if APP_CONFIG.READ_ONLY is set, provide no-op implementations
+  try {
+    const cfgApp = (typeof APP_CONFIG !== 'undefined') ? APP_CONFIG : (window?.APP_CONFIG || null);
+    if (cfgApp && cfgApp.READ_ONLY) {
+      // Provide friendly no-op methods used by table modules
+      container.createRecordOnServer = async () => {
+        console.warn('createRecordOnServer called but APP_CONFIG.READ_ONLY is true. Suppressing network write.');
+        try { showToast('Oluşturma devre dışı: Rapor modu etkin.', 'warning'); } catch(e){}
+        return null;
+      };
+      container.updateRecordOnServer = async () => {
+        console.warn('updateRecordOnServer called but APP_CONFIG.READ_ONLY is true. Suppressing network write.');
+        try { showToast('Güncelleme devre dışı: Rapor modu etkin.', 'warning'); } catch(e){}
+        return false;
+      };
+      container.deleteRecordOnServer = async () => {
+        console.warn('deleteRecordOnServer called but APP_CONFIG.READ_ONLY is true. Suppressing network write.');
+        try { showToast('Silme devre dışı: Rapor modu etkin.', 'warning'); } catch(e){}
+        return false;
+      };
+    }
+  } catch (e) {
+    // ignore config read errors
+  }
 
   return container;
 }

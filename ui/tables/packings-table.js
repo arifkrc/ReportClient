@@ -1,67 +1,20 @@
 import { createSimpleTable } from '../simple-table.js';
+import { APP_CONFIG } from '../../config/app-config.js';
+import { packingsColumns } from './columns.js';
 
 // Paketleme tablosu konfigürasyonu
 export function createPackingsTable(apiBaseUrl) {
   return createSimpleTable({
     apiBaseUrl,
     endpoints: {
-      list: '/Packings',
-      save: '/Packings', 
-      update: '/Packings/{id}',
-      delete: '/Packings/{id}',
-      activate: '/Packings/{id}/activate',
-      deactivate: '/Packings/{id}/deactivate'
+      list: APP_CONFIG.API.ENDPOINTS.PACKINGS_PAGED,
+      save: APP_CONFIG.API.ENDPOINTS.PACKINGS,
+      update: APP_CONFIG.API.ENDPOINTS.PACKINGS_BY_ID,
+      delete: APP_CONFIG.API.ENDPOINTS.PACKINGS_BY_ID,
+      activate: APP_CONFIG.API.ENDPOINTS.PACKINGS_ACTIVATE,
+      deactivate: APP_CONFIG.API.ENDPOINTS.PACKINGS_DEACTIVATE
     },
-    columns: [
-      {
-        field: 'date',
-        header: 'Tarih',
-        className: 'text-neutral-400 text-xs',
-        editable: true
-      },
-      {
-        field: 'shift',
-        header: 'Vardiya',
-        className: 'text-center font-mono',
-        editable: true
-      },
-      {
-        field: 'supervisor',
-        header: 'Sorumlu',
-        className: 'text-sm',
-        editable: true
-      },
-      {
-        field: 'productCode',
-        header: 'Ürün Kodu',
-        className: 'font-mono',
-        editable: true
-      },
-      {
-        field: 'quantity',
-        header: 'Miktar',
-        className: 'text-center font-medium',
-        editable: true
-      },
-      {
-        field: 'explodedFrom',
-        header: 'Exploded From',
-        className: 'text-sm text-neutral-400',
-        editable: true
-      },
-      {
-        field: 'explodingTo',
-        header: 'Exploding To',
-        className: 'text-sm text-neutral-400',
-        editable: true
-      },
-      {
-        field: 'addedDateTime',
-        header: 'Eklenme',
-        className: 'text-neutral-400 text-xs',
-        editable: false
-      }
-    ],
+    columns: packingsColumns,
     searchFields: ['productCode', 'supervisor', 'shift', 'explodedFrom', 'explodingTo'],
     title: 'Paketleme Listesi',
     
@@ -157,7 +110,7 @@ export function createPackingsTable(apiBaseUrl) {
       return value || '-';
     },
     
-    // Read-only table: editing inputs removed
+  // Read-only: editing inputs disabled
     
     // Paketleme'ye özel validasyon
     validateRowData: (data) => {

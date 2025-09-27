@@ -1,34 +1,18 @@
 import { createSimpleTable } from '../simple-table.js';
+import { APP_CONFIG } from '../../config/app-config.js';
+import { operationsColumns } from './columns.js';
 
 // Operasyon tablosu konfigürasyonu
 export function createOperationsTable(apiBaseUrl) {
   return createSimpleTable({
     apiBaseUrl,
     endpoints: {
-      list: '/Operations',
-      activate: '/Operations/{id}/activate',
-      deactivate: '/Operations/{id}/deactivate',
-      update: '/Operations/{id}'
+      list: APP_CONFIG.API.ENDPOINTS.OPERATIONS,
+      activate: APP_CONFIG.API.ENDPOINTS.OPERATIONS_ACTIVATE,
+      deactivate: APP_CONFIG.API.ENDPOINTS.OPERATIONS_DEACTIVATE,
+      update: APP_CONFIG.API.ENDPOINTS.OPERATIONS_BY_ID
     },
-    columns: [
-      {
-        field: 'shortCode',
-        header: 'Operasyon Kodu',
-        className: 'font-mono',
-        editable: true
-      },
-      {
-        field: 'name',
-        header: 'Operasyon Adı',
-        editable: true
-      },
-      {
-        field: 'addedDateTime',
-        header: 'Eklenme',
-        className: 'text-neutral-400 text-xs',
-        editable: false
-      }
-    ],
+    columns: operationsColumns,
     searchFields: ['shortCode', 'name', 'addedDateTime'],
     title: 'Tanımlı Operasyonlar',
     

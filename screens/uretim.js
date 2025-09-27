@@ -1,7 +1,6 @@
 import { showToast, showFormErrors, clearFormErrors } from '../ui/helpers.js';
 import { createUretimTable } from '../ui/tables/uretim-table.js';
 import { APP_CONFIG } from '../config/app-config.js';
-import ProductInputComponent from '../ui/core/product-input.js';
 import ApiClient from '../ui/core/api-client.js';
 
 let _cleanup = null;
@@ -12,6 +11,7 @@ export async function mount(container, { setHeader }) {
     <div class="mt-2">
       <div class="mt-6 bg-neutral-800 p-4 rounded">
         <h4 class="text-lg font-medium mb-3">Üretim Listesi (Rapor Modu)</h4>
+        <div id="uretim-controls" class="mb-3"></div>
         <div id="uretim-table-container" class="overflow-auto"></div>
       </div>
     </div>
@@ -31,6 +31,13 @@ export async function mount(container, { setHeader }) {
   const uretimTable = createUretimTable(APP_CONFIG.API.BASE_URL);
   await uretimTable.init();
   tableContainer.appendChild(uretimTable);
+
+  // Create a lightweight operation select for lookups (read-only helper)
+  const controls = container.querySelector('#uretim-controls');
+  const operationSelect = document.createElement('select');
+  operationSelect.name = 'operationId';
+  operationSelect.className = 'px-2 py-1 bg-neutral-700 rounded text-sm mr-2';
+  controls.appendChild(operationSelect);
 
   // (Form removed in report-only client)
 
@@ -76,7 +83,7 @@ export async function mount(container, { setHeader }) {
 
   // Load operations into the operation select (reuse global loader if available)
   async function loadOperationsDropdown() {
-    const select = form.querySelector('[name="operationId"]');
+    const select = operationSelect;
     if (!select) return;
 
     // If a global helper exists (from cycle-times-table), use it

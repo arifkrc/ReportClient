@@ -1,103 +1,20 @@
 import { createSimpleTable } from '../simple-table.js';
-import ProductInputComponent from '../core/product-input.js';
+import { APP_CONFIG } from '../../config/app-config.js';
+import { ordersColumns } from './columns.js';
 
 // Sipariş tablosu konfigürasyonu
 export function createOrdersTable(apiBaseUrl) {
   return createSimpleTable({
     apiBaseUrl,
     endpoints: {
-      list: '/Orders',
-      save: '/Orders', 
-      update: '/Orders/{id}',
-      delete: '/Orders/{id}',
-      activate: '/Orders/{id}/activate',
-      deactivate: '/Orders/{id}/deactivate'
+      list: APP_CONFIG.API.ENDPOINTS.ORDERS,
+      save: APP_CONFIG.API.ENDPOINTS.ORDERS,
+      update: APP_CONFIG.API.ENDPOINTS.ORDERS_BY_ID,
+      delete: APP_CONFIG.API.ENDPOINTS.ORDERS_BY_ID,
+      activate: APP_CONFIG.API.ENDPOINTS.ORDERS_ACTIVATE,
+      deactivate: APP_CONFIG.API.ENDPOINTS.ORDERS_DEACTIVATE
     },
-    columns: [
-      {
-        field: 'documentNo',
-        header: 'Belge No',
-        className: 'font-mono',
-        editable: true
-      },
-      {
-        field: 'customer',
-        header: 'Müşteri',
-        editable: true
-      },
-      {
-        field: 'productCode',
-        header: 'Ürün Kodu',
-        className: 'font-mono',
-        editable: true,
-        customRender: (record) => {
-          if (record.productCode) {
-            const productInfo = record.productName ? 
-              `${record.productCode} (${record.productName})` : 
-              record.productCode;
-            return `<span title="ID: ${record.productId || 'N/A'}">${productInfo}</span>`;
-          }
-          return record.productCode || '';
-        }
-      },
-      {
-        field: 'variants',
-        header: 'Varyantlar',
-        className: 'text-sm',
-        editable: true
-      },
-      {
-        field: 'orderCount',
-        header: 'Sipariş Adet',
-        className: 'text-center',
-        editable: true
-      },
-      {
-        field: 'completedQuantity',
-        header: 'Tamamlanan',
-        className: 'text-center',
-        editable: true
-      },
-      {
-        field: 'remaining',
-        header: 'Kalan',
-        className: 'text-center font-medium',
-        editable: false,
-        customRender: (record) => {
-          const orderCount = parseInt(record.orderCount) || 0;
-          const completedQuantity = parseInt(record.completedQuantity) || 0;
-          const remaining = orderCount - completedQuantity;
-          
-          // Kalan miktar negatifse kırmızı, pozitifse yeşil, sıfırsa gri renk
-          let colorClass = 'text-neutral-400';
-          if (remaining > 0) {
-            colorClass = 'text-green-400';
-          } else if (remaining < 0) {
-            colorClass = 'text-red-400';
-          }
-          
-          return `<span class="${colorClass} font-mono">${remaining}</span>`;
-        }
-      },
-      {
-        field: 'carryover',
-        header: 'Devir',
-        className: 'text-center',
-        editable: true
-      },
-      {
-        field: 'orderAddedDateTime',
-        header: 'Hafta',
-        className: 'text-center font-mono',
-        editable: true
-      },
-      {
-        field: 'addedDateTime',
-        header: 'Eklenme',
-        className: 'text-neutral-400 text-xs',
-        editable: false
-      }
-    ],
+    columns: ordersColumns,
     searchFields: ['documentNo', 'customer', 'productCode', 'variants'],
     title: 'Sipariş Listesi',
     
@@ -204,9 +121,7 @@ export function createOrdersTable(apiBaseUrl) {
       };
     },
     
-    // All update/create/delete behavior removed for report-only client
-
-    // All interactive update handlers removed for report-only client
+  // Read-only: update/create/delete and interactive handlers disabled
   });
 }
 

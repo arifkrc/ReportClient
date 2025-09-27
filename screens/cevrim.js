@@ -5,8 +5,7 @@ import { APP_CONFIG } from '../config/app-config.js';
 import DropdownManager from '../ui/managers/dropdown-manager.js';
 import { createContext, destroyContext } from '../ui/core/event-manager.js';
 import { validateCycleTime } from '../ui/core/validation-engine.js';
-import ProductInputComponent from '../ui/core/product-input.js';
-import productLookupService from '../ui/core/product-lookup.js';
+// ...existing code...
 
 let _cleanup = null;
 
@@ -20,44 +19,16 @@ export async function mount(container, { setHeader }) {
     <div class="mt-2">
       <h3 class="text-xl font-semibold mb-2">Çevrim Zamanları (Okuma Modu)</h3>
       <p class="text-sm text-neutral-400 mb-4">Çevrim zamanı ekleme/güncelleme kapalıdır. Bu ekran rapor amaçlıdır.</p>
-      <div id="product-input-container" class="mb-4"></div>
-      <div id="cycle-times-list-placeholder" class="mt-2"></div>
+  <div id="cycle-times-list-placeholder" class="mt-2"></div>
     </div>
   `;
 
   const placeholder = container.querySelector('#cycle-times-list-placeholder');
-  const productInputContainer = container.querySelector('#product-input-container');
-
   // Merkezi sistemleri başlat
   const apiClient = new ApiClient(APP_CONFIG.API.BASE_URL);
   const dropdownManager = new DropdownManager(apiClient);
-  
-  // Merkezi Product Input Component'i oluştur
-  const productInput = new ProductInputComponent({
-    onProductFound: (product) => {
-      console.log('✅ Product found via component:', product);
-    },
-    onProductNotFound: (productCode) => {
-      console.log('❌ Product not found via component:', productCode);
-    },
-    onError: (error) => {
-      console.error('❌ Product lookup error via component:', error);
-    }
-  });
 
-  // Product input'u container'a ekle
-  const { input: productCodeInput, display: productNameDisplay } = productInput.createProductInput(
-    productInputContainer,
-    {
-      inputName: 'productCode',
-      placeholder: 'Ürün kodunu yazın...',
-      required: true
-    }
-  );
-
-  // No form handling in read-only client
-
-  // Create an operation select (since form was removed) so dropdownManager can populate it
+  // Create an operation select so dropdownManager can populate it
   const operationSelect = document.createElement('select');
   operationSelect.name = 'operationId';
   operationSelect.className = 'mt-2 px-2 py-1 bg-neutral-800 rounded text-sm';
@@ -65,8 +36,8 @@ export async function mount(container, { setHeader }) {
   const opLabel = document.createElement('div');
   opLabel.className = 'text-sm text-neutral-400 mb-1';
   opLabel.textContent = 'Operasyon seçin';
-  productInputContainer.appendChild(opLabel);
-  productInputContainer.appendChild(operationSelect);
+  placeholder.appendChild(opLabel);
+  placeholder.appendChild(operationSelect);
 
   // Conflict dialog - Kullanıcıya güncelleme seçeneği sun
   async function showConflictDialog(formData, message, errors) {
@@ -143,9 +114,9 @@ export async function mount(container, { setHeader }) {
     try {
       console.log('🔄 Updating existing cycle time record');
       
-      // Önce mevcut kaydı bul
-      const foundProductId = productInput.getFoundProductId();
-      const existingRecord = await findExistingRecord(formData.operationId, foundProductId);
+  // Önce mevcut kaydı bul
+  const foundProductId = formData.productId || null;
+  const existingRecord = await findExistingRecord(formData.operationId, foundProductId);
       
       if (!existingRecord) {
         showToast('Güncellenecek kayıt bulunamadı', 'error');
@@ -186,12 +157,12 @@ export async function mount(container, { setHeader }) {
   // Table data manipulation helper function
   async function addRecordToTable(newRecord, formData) {
     try {
-      // Operasyon bilgilerini cache'den al
-      const operations = await dropdownManager.getOperations();
-      const operation = operations.find(op => op.id == formData.operationId);
+  // Operasyon bilgilerini cache'den al
+  const operations = await dropdownManager.getOperations();
+  const operation = operations.find(op => op.id == formData.operationId);
       
-      // Ürün bilgilerini cache'den al  
-      const productName = container.querySelector('#product-name-display').textContent;
+  // Ürün bilgisi okunamaz (read-only client); leave blank or use formData.productCode
+  const productName = formData.productCode || '';
       
       // Complete record object oluştur
       const completeRecord = {
@@ -234,10 +205,7 @@ export async function mount(container, { setHeader }) {
       eventContext.removeAll();
       destroyContext('cycle-times-form');
       
-      // Product input component'i temizle
-      if (productInput) {
-        productInput.destroy();
-      }
+  // nothing specific to clean in read-only mode
       
       container.innerHTML = ''; 
     } catch(e) {
