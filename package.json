@@ -4,8 +4,8 @@
   "description": "arifk.co Takip Yönetim Sistemi - Üretim, Paketleme, Siparişler",
   "main": "main.js",
   "scripts": {
-    "start": "electron . --disable-gpu-cache --disk-cache-size=1 --log-level=2",
-    "start-clean": "electron . --disable-gpu-cache --disable-dev-shm-usage --no-sandbox"
+  "start": "electron . --disable-gpu-cache --disk-cache-size=1 --log-level=2",
+  "start-clean": "electron . --disable-gpu-cache --disable-dev-shm-usage --no-sandbox"
   },
   "devDependencies": {
     "electron": "^26.0.0"

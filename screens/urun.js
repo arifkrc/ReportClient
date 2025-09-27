@@ -2,7 +2,7 @@ import { showToast } from '../ui/helpers.js';
 import { createProductsTable } from '../ui/tables/products-table.js';
 import ApiClient from '../ui/core/api-client.js';
 import { APP_CONFIG } from '../config/app-config.js';
-// (interactive dropdowns disabled in report-only client)
+//
 import { createContext, destroyContext } from '../ui/core/event-manager.js';
 import { validateProduct } from '../ui/core/validation-engine.js';
 
