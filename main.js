@@ -1,4 +1,5 @@
 const { app, BrowserWindow } = require('electron');
+const { shell } = require('electron');
 const { ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
@@ -442,4 +443,26 @@ ipcMain.handle('list-orders', async () => {
 
 ipcMain.handle('delete-order', async () => {
   return { ok: false, error: 'delete-order is disabled: read-only client' };
+});
+
+// Secure open-external handler - only allow explicitly whitelisted hosts
+ipcMain.handle('open-external', async (event, url) => {
+  try {
+    if (!url || typeof url !== 'string') return { ok: false, error: 'invalid-url' };
+    // Basic validation: only allow HTTPS URLs to arifk.co (and subdomains)
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    if (parsed.protocol !== 'https:') {
+      return { ok: false, error: 'only-https-allowed' };
+    }
+    if (hostname === 'arifk.co' || hostname.endsWith('.arifk.co')) {
+      // open in user's default external browser
+      await shell.openExternal(url);
+      return { ok: true };
+    }
+    return { ok: false, error: 'host-not-allowed' };
+  } catch (err) {
+    console.error('open-external error:', err?.message || err);
+    return { ok: false, error: err?.message || String(err) };
+  }
 });

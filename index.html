@@ -29,6 +29,51 @@
   }
   /* Slight transition for smoother visual feedback */
   th[data-field], td[data-field] { transition: background-color .08s ease, color .08s ease; }
+    /* Text shimmer overlay: keep base blue color, animate a bright stripe across letters */
+    @keyframes shine-move {
+      0% { background-position: -140% 0; }
+      100% { background-position: 140% 0; }
+    }
+    #site-link {
+      position: relative;
+      display: inline-block;
+      -webkit-user-select: none;
+      user-select: none;
+      transition: transform .12s ease;
+      color: #3b82f6; /* keep the original blue */
+      z-index: 0;
+    }
+    /* Pseudo-element duplicates text and shows the shimmer gradient clipped to letters.
+       Ensure it inherits font metrics so the overlay aligns exactly over the base text.
+       Use mix-blend-mode to brighten the underlying blue text when the sheen passes. */
+    #site-link::after {
+      content: attr(data-text);
+      position: absolute;
+      left: 0; top: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      display: inline-block;
+      font: inherit;
+      font-weight: inherit;
+      line-height: inherit;
+      text-align: left;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent; /* reveal gradient through letters */
+      background-image: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.95) 50%, rgba(255,255,255,0) 100%);
+      background-size: 240% 100%;
+      mix-blend-mode: screen; /* brightens the blue beneath */
+      opacity: 0;
+      transition: opacity .12s ease;
+      transform: translateZ(0); /* force GPU layer for smoother animation */
+      z-index: 1;
+      will-change: background-position, opacity;
+    }
+    #site-link:hover { transform: translateY(-1px); }
+    #site-link:hover::after {
+      opacity: 1;
+      animation: shine-move 1.8s linear forwards;
+    }
   </style>
 </head>
 <body class="bg-neutral-900 text-neutral-100 min-h-screen">
@@ -37,7 +82,7 @@
     <main class="flex-1 p-8 overflow-auto">
       <div id="header" class="flex items-center justify-between mb-6">
         <div class="flex items-center gap-6">
-          <div class="text-lg font-bold" style="color: #3b82f6;">arifk.co</div>
+          <div class="text-lg font-bold" style="color: #3b82f6;" id="site-link" data-text="arifk.co">arifk.co</div>
           <div class="h-6 w-px bg-neutral-700"></div>
           <div>
             <h2 id="screen-title" class="text-3xl font-bold">Üretim</h2>
@@ -121,5 +166,22 @@
   </div>
 
   <script type="module" src="renderer-app.js"></script>
+  <script>
+    // Attach click handler to open in default browser via preload bridge
+    (function(){
+      const el = document.getElementById('site-link');
+      if (!el) return;
+      el.addEventListener('click', async (e) => {
+        e.preventDefault();
+        try {
+          // prefer explicit https URL
+          const res = await window.electronAPI.openExternal('https://arifk.co');
+          if (!res || !res.ok) console.warn('openExternal failed', res);
+        } catch (err) {
+          console.error('openExternal error', err);
+        }
+      });
+    })();
+  </script>
 </body>
 </html>
