@@ -24,7 +24,7 @@ const api = {
   // operation types
   getOperationTypes: (onlyActive = false) => ipcRenderer.invoke('get-operation-types', onlyActive),
 
-  // staging APIs removed in report-only client
+  // staging APIs disabled in report-only client
   // open external link in user's default browser (validated in main)
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
 };

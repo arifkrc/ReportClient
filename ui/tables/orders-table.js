@@ -126,4 +126,4 @@ export function createOrdersTable(apiBaseUrl) {
 }
 
 // Paketleme kaydı ekleme fonksiyonu
-// addPackingRecord removed in report-only client
+// addPackingRecord disabled in report-only client
