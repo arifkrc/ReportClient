@@ -1,0 +1,20 @@
+{
+  "name": "arifk-takip-sistemi",
+  "version": "1.0.0",
+  "description": "arifk.co Takip Yönetim Sistemi - Üretim, Paketleme, Siparişler",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron . --disable-gpu-cache --disk-cache-size=1 --log-level=2",
+    "start-clean": "electron . --disable-gpu-cache --disable-dev-shm-usage --no-sandbox"
+  },
+  "devDependencies": {
+    "electron": "^26.0.0"
+  },
+  "author": "arifk.co",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.11.0",
+    "axios-retry": "^4.5.0",
+    "xlsx": "^0.18.5"
+  }
+}
