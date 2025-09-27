@@ -2,7 +2,6 @@ import { showToast } from '../ui/helpers.js';
 import { createCycleTimesTable } from '../ui/tables/cycle-times-table.js';
 import ApiClient from '../ui/core/api-client.js';
 import { APP_CONFIG } from '../config/app-config.js';
-import DropdownManager from '../ui/managers/dropdown-manager.js';
 import { createContext, destroyContext } from '../ui/core/event-manager.js';
 import { validateCycleTime } from '../ui/core/validation-engine.js';
 // ...existing code...
@@ -26,18 +25,8 @@ export async function mount(container, { setHeader }) {
   const placeholder = container.querySelector('#cycle-times-list-placeholder');
   // Merkezi sistemleri başlat
   const apiClient = new ApiClient(APP_CONFIG.API.BASE_URL);
-  const dropdownManager = new DropdownManager(apiClient);
 
-  // Create an operation select so dropdownManager can populate it
-  const operationSelect = document.createElement('select');
-  operationSelect.name = 'operationId';
-  operationSelect.className = 'mt-2 px-2 py-1 bg-neutral-800 rounded text-sm';
-  // add a label for clarity
-  const opLabel = document.createElement('div');
-  opLabel.className = 'text-sm text-neutral-400 mb-1';
-  opLabel.textContent = 'Operasyon seçin';
-  placeholder.appendChild(opLabel);
-  placeholder.appendChild(operationSelect);
+  // Report-only: interactive lookup selects are suppressed. We keep the placeholder for the data table.
 
   // Conflict dialog - Kullanıcıya güncelleme seçeneği sun
   async function showConflictDialog(formData, message, errors) {
@@ -50,8 +39,8 @@ export async function mount(container, { setHeader }) {
       const modal = document.createElement('div');
       modal.className = 'bg-neutral-800 rounded-lg p-6 max-w-md mx-4 text-white';
       
-      // Operasyon ve ürün bilgileri
-      const operationName = container.querySelector('[name="operationId"] option:checked')?.textContent || 'Bilinmeyen Operasyon';
+  // Operasyon ve ürün bilgileri (report-only: prefer provided name in formData)
+  const operationName = formData.operationName || formData.operationId || 'Bilinmeyen Operasyon';
       const productCode = formData.productCode;
       const productName = container.querySelector('#product-name-display')?.textContent || '';
       const newSeconds = formData.second;
@@ -157,18 +146,16 @@ export async function mount(container, { setHeader }) {
   // Table data manipulation helper function
   async function addRecordToTable(newRecord, formData) {
     try {
-  // Operasyon bilgilerini cache'den al
-  const operations = await dropdownManager.getOperations();
-  const operation = operations.find(op => op.id == formData.operationId);
-      
-  // Ürün bilgisi okunamaz (read-only client); leave blank or use formData.productCode
+  // Prefer operation name from formData (report-only). No lookup selects in this screen.
+  const operationName = formData.operationName || '';
+  const operationShortCode = formData.operationShortCode || '';
   const productName = formData.productCode || '';
       
       // Complete record object oluştur
       const completeRecord = {
         id: newRecord.id,
-        operationShortCode: operation?.shortCode || '',
-        operationName: operation?.name || '',
+  operationShortCode: operationShortCode,
+  operationName: operationName,
         productCode: formData.productCode,
         productName: productName,
         second: newRecord.second || formData.second,
@@ -190,8 +177,7 @@ export async function mount(container, { setHeader }) {
     }
   }
 
-  // Dropdownları doldur (sadece operasyonlar)
-  await dropdownManager.populateOperations(operationSelect);
+  // Dropdowns/lookups are suppressed in report-only mode
 
   // Data table oluştur (merkezi sistem kullanarak)
   const dataTable = createCycleTimesTable(APP_CONFIG.API.BASE_URL);

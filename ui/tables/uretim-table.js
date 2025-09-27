@@ -6,6 +6,10 @@ import { APP_CONFIG } from '../../config/app-config.js';
 export function createUretimTable(apiBaseUrl) {
   const cfg = {
     apiBaseUrl,
+    // Backend expects 1-based pageNumber (server validation requires pageNumber >= 1)
+    pageIndexZeroBased: false,
+    // Explicit param name mapping to ensure `pageNumber` is used
+    paramNames: { page: 'pageNumber', pageSize: 'pageSize' },
     // API endpoints used by the table (list must be paged)
     endpoints: {
       list: APP_CONFIG.API.ENDPOINTS.PRODUCTION_TRACKING_FORMS_PAGED,
@@ -31,6 +35,14 @@ export function createUretimTable(apiBaseUrl) {
         if (column.field === 'quantity') {
           return `<span class="text-right">${value != null ? value : '-'}</span>`;
         }
+
+            if (column.field === 'operation') {
+              // Prefer human-friendly operation name when available
+              const opName = record.operationName || record.operationDisplay || record.operationNameTurkish || null;
+              if (opName) return `<span>${opName}</span>`;
+              // fallback to raw value
+              return value || '-';
+            }
 
         if (column.field === 'cycleTime') {
           if (value == null || value === '') return '-';

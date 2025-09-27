@@ -2,7 +2,7 @@ import { showToast } from '../ui/helpers.js';
 import { createProductsTable } from '../ui/tables/products-table.js';
 import ApiClient from '../ui/core/api-client.js';
 import { APP_CONFIG } from '../config/app-config.js';
-import DropdownManager from '../ui/managers/dropdown-manager.js';
+// Interactive dropdown manager removed for report-only client
 import { createContext, destroyContext } from '../ui/core/event-manager.js';
 import { validateProduct } from '../ui/core/validation-engine.js';
 
@@ -27,11 +27,8 @@ export async function mount(container, { setHeader }) {
 
   // Merkezi sistemleri başlat
   const apiClient = new ApiClient(APP_CONFIG.API.BASE_URL);
-  const dropdownManager = new DropdownManager(apiClient);
   
-  // No form functionality in report-only client. Populate dropdowns for display in case needed by tables.
-  await dropdownManager.populateProductTypes(null);
-  await dropdownManager.populateOperations(null);
+  // No form functionality in report-only client. Dropdowns and lookups are suppressed.
 
   // Data table oluştur (merkezi sistem kullanarak)
   const dataTable = createProductsTable(APP_CONFIG.API.BASE_URL);

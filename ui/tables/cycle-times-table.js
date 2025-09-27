@@ -84,9 +84,14 @@ export function createCycleTimesTable(apiBaseUrl) {
     }
   }
   
-  // Global access için fonksiyonu window'a ekle
-  if (typeof window !== 'undefined') {
-    window.loadOperationsToSelect = loadOperationsToSelect;
+  // Only expose this helper globally when the app is NOT in read-only mode
+  try {
+    const cfg = (typeof APP_CONFIG !== 'undefined') ? APP_CONFIG : (window?.APP_CONFIG || null);
+    if (typeof window !== 'undefined' && cfg && !cfg.READ_ONLY) {
+      window.loadOperationsToSelect = loadOperationsToSelect;
+    }
+  } catch (e) {
+    // ignore
   }
 
   return createSimpleTable({

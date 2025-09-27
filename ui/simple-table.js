@@ -87,6 +87,52 @@ export function createSimpleTable(config) {
     sortDir: 'sortDir'
   };
 
+  // whether the backend expects 0-based page indices (default: false -> 1-based)
+  const pageIndexZeroBased = config.pageIndexZeroBased ?? false;
+
+  // --- simple in-memory caches for lookups (shared per app)
+  // operationsCache: { baseUrl: { fetchedAt: number, ttl: number, map: { id: name } } }
+  if (!window.__operationsCache) window.__operationsCache = {};
+  const operationsCache = window.__operationsCache;
+
+  async function fetchOperationsOnce() {
+    try {
+      const cacheKey = apiBaseUrl || (window?.APP_CONFIG?.API?.BASE_URL) || 'default';
+      const cacheEntry = operationsCache[cacheKey];
+      const now = Date.now();
+      const ttl = (window?.APP_CONFIG?.CACHE?.OPERATIONS_DURATION) ?? 5 * 60 * 1000;
+      if (cacheEntry && (now - cacheEntry.fetchedAt) < ttl && cacheEntry.map) {
+        return cacheEntry.map;
+      }
+
+      // build operations URL from config
+      const opsEndpoint = (window?.APP_CONFIG?.API?.ENDPOINTS?.OPERATIONS) || '/Operations';
+      const base = apiBaseUrl || (window?.APP_CONFIG?.API?.BASE_URL) || '';
+      const url = base + opsEndpoint;
+      const res = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } });
+      if (!res.ok) {
+        console.warn('Unable to fetch operations list for names:', res.status, res.statusText);
+        return null;
+      }
+      const body = await res.json();
+      // assume body is array of { id, name, shortCode }
+      const arr = Array.isArray(body) ? body : (body?.data || body?.items || []);
+      const map = {};
+      arr.forEach(op => {
+        if (op == null) return;
+        const id = op.id ?? op.operationId ?? op.code ?? null;
+        const name = op.name ?? op.operationName ?? op.displayName ?? op.shortCode ?? String(id);
+        if (id != null) map[String(id)] = name;
+      });
+
+      operationsCache[cacheKey] = { fetchedAt: now, ttl, map };
+      return map;
+    } catch (e) {
+      console.warn('fetchOperationsOnce error', e);
+      return null;
+    }
+  }
+
   const container = document.createElement('div');
   let showInactive = false;
   let currentPage = 1;
@@ -350,7 +396,10 @@ export function createSimpleTable(config) {
         // use mapped param names by default (pageNumber/pageSize/searchTerm/status)
   // Always include status (active by default) and include page/pageSize even if zero
   qp.set(paramNames.status || 'status', statusParam);
-  if (page !== undefined && page !== null) qp.set(paramNames.page || 'pageNumber', String(page));
+  if (page !== undefined && page !== null) {
+    const pageToSend = pageIndexZeroBased ? Math.max(0, Number(page) - 1) : page;
+    qp.set(paramNames.page || 'pageNumber', String(pageToSend));
+  }
   if (pSize !== undefined && pSize !== null) qp.set(paramNames.pageSize || 'pageSize', String(pSize));
   if (startDate !== undefined && startDate !== null) qp.set(paramNames.startDate || 'startDate', startDate);
   if (endDate !== undefined && endDate !== null) qp.set(paramNames.endDate || 'endDate', endDate);
@@ -378,42 +427,74 @@ export function createSimpleTable(config) {
         });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status} ${response.statusText}`);
+        // Try to extract server-provided error details (JSON or plain text)
+        let serverDetail = '';
+        try {
+          const ct = response.headers.get('content-type') || '';
+          if (ct.includes('application/json')) {
+            const body = await response.json();
+            serverDetail = JSON.stringify(body);
+          } else {
+            serverDetail = await response.text();
+          }
+        } catch (e) {
+          serverDetail = `unable to read response body: ${e.message}`;
+        }
+        const errMsg = `HTTP ${response.status} ${response.statusText}${serverDetail ? ' - ' + serverDetail : ''}`;
+        console.error('API non-OK response body:', serverDetail);
+        throw new Error(errMsg);
       }
 
       const result = await response.json();
-      // capture server totals when present (common keys: total, totalCount, count)
+      // support paged response shape: { success, message, data: { items: [...], totalCount, pageNumber, pageSize } }
+      let records = [];
       try {
-        if (result && (typeof result.total === 'number' || typeof result.totalCount === 'number' || typeof result.count === 'number')) {
-          lastServerTotal = result.total ?? result.totalCount ?? result.count;
-        } else if (result && result.meta && typeof result.meta.total === 'number') {
-          lastServerTotal = result.meta.total;
-        } else if (result && result.items && typeof result.items.length === 'number' && typeof result.total === 'number') {
-          lastServerTotal = result.total;
+        if (result && result.data && Array.isArray(result.data.items)) {
+          records = result.data.items;
+          lastServerTotal = Number(result.data.totalCount ?? result.data.total ?? result.data.count ?? NaN);
+          if (typeof result.data.pageNumber === 'number') {
+            currentPage = pageIndexZeroBased ? (Number(result.data.pageNumber) + 1) : Number(result.data.pageNumber);
+          }
+        } else if (Array.isArray(result)) {
+          records = result;
+          lastServerTotal = null;
+        } else if (result?.items && Array.isArray(result.items)) {
+          records = result.items;
+          lastServerTotal = Number(result.total ?? result.totalCount ?? result.count ?? NaN);
+        } else if (result?.data && Array.isArray(result.data)) {
+          records = result.data;
+          lastServerTotal = null;
         } else {
-          // if array or data provided without totals, clear lastServerTotal
+          console.warn('Unexpected API response format:', result);
+          records = [];
           lastServerTotal = null;
         }
-      } catch (e) { lastServerTotal = null; }
-      
-      // API response format handling
-      let records = [];
-      if (Array.isArray(result)) {
-        records = result;
-      } else if (result?.data && Array.isArray(result.data)) {
-        records = result.data;
-      } else if (result?.success && result?.data && Array.isArray(result.data)) {
-        records = result.data;
-      } else if (result?.items && Array.isArray(result.items)) {
-        // handle paged responses
-        records = result.items;
-      } else {
-        console.warn('Unexpected API response format:', result);
+      } catch (e) {
+        console.warn('Error parsing API response shape', e);
         records = [];
+        lastServerTotal = null;
       }
       
   allRecords = records;
-      
+      // If records contain operation ids but not names, try to enrich them from operations cache
+      (async () => {
+        try {
+          const needMap = allRecords.some(r => r && r.operation && !r.operationName && !r.operationDisplay);
+          if (!needMap) return;
+          const opMap = await fetchOperationsOnce();
+          if (!opMap) return;
+          allRecords.forEach(r => {
+            if (!r) return;
+            if (r.operation && !r.operationName && !r.operationDisplay) {
+              const key = String(r.operation);
+              if (opMap[key]) r.operationName = opMap[key];
+            }
+          });
+          // re-render to show updated names
+          renderTable();
+        } catch (e) { console.warn('Operation name enrichment failed', e); }
+      })();
+
       console.log('✅ Data loaded:', allRecords.length, 'records');
     onDataLoaded(allRecords);
     renderTable();

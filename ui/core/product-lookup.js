@@ -160,6 +160,13 @@ const productLookupService = new ProductLookupService();
 
 export default productLookupService;
 
-// Backward compatibility için global fonksiyonlar
-window.getProductByCode = (productCode) => productLookupService.getProductByCode(productCode);
-window.getProductsByCodes = (productCodes) => productLookupService.getProductsByCodes(productCodes);
+// Backward compatibility: expose global helpers only when not in READ_ONLY mode
+try {
+  const cfg = (typeof APP_CONFIG !== 'undefined') ? APP_CONFIG : (window?.APP_CONFIG || null);
+  if (typeof window !== 'undefined' && cfg && !cfg.READ_ONLY) {
+    window.getProductByCode = (productCode) => productLookupService.getProductByCode(productCode);
+    window.getProductsByCodes = (productCodes) => productLookupService.getProductsByCodes(productCodes);
+  }
+} catch (e) {
+  // ignore
+}

@@ -32,15 +32,7 @@ export async function mount(container, { setHeader }) {
   await uretimTable.init();
   tableContainer.appendChild(uretimTable);
 
-  // Create a lightweight operation select for lookups (read-only helper)
-  const controls = container.querySelector('#uretim-controls');
-  const operationSelect = document.createElement('select');
-  operationSelect.name = 'operationId';
-  operationSelect.className = 'px-2 py-1 bg-neutral-700 rounded text-sm mr-2';
-  controls.appendChild(operationSelect);
-
-  // (Form removed in report-only client)
-
+  // Controls area reserved for future report filters (report-only mode hides interactive selects)
   // Helper: compute average 'second' from CycleTimes for a product (optionally by operation)
   async function getCycleTimeSuggestion(productId, operationId) {
     try {
@@ -81,46 +73,7 @@ export async function mount(container, { setHeader }) {
     }
   }
 
-  // Load operations into the operation select (reuse global loader if available)
-  async function loadOperationsDropdown() {
-    const select = operationSelect;
-    if (!select) return;
-
-    // If a global helper exists (from cycle-times-table), use it
-    if (typeof window !== 'undefined' && typeof window.loadOperationsToSelect === 'function') {
-      try {
-        await window.loadOperationsToSelect(select, APP_CONFIG.API.BASE_URL);
-        return;
-      } catch (err) {
-        console.warn('loadOperationsToSelect failed:', err);
-      }
-    }
-
-    // Fallback: fetch operations directly
-    try {
-      const resp = await fetch(`${APP_CONFIG.API.BASE_URL}/Operations`);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const json = await resp.json();
-      let ops = [];
-      if (Array.isArray(json)) ops = json;
-      else if (json?.data) ops = json.data;
-
-      // Populate select
-      select.innerHTML = '<option value="">Seçiniz...</option>';
-      ops.forEach(op => {
-        const opt = document.createElement('option');
-        opt.value = op.id;
-        opt.textContent = `${op.shortCode || ''} - ${op.name || ''}`;
-        select.appendChild(opt);
-      });
-    } catch (err) {
-      console.error('Operations fetch error:', err);
-      select.innerHTML = '<option value="">Operasyon yüklenemedi</option>';
-    }
-  }
-
-  // Load on mount
-  loadOperationsDropdown().catch(e => console.warn('Unexpected loadOperationsDropdown error:', e));
+  // In report-only mode we intentionally hide lookup controls; operations mapping is handled centrally in the table helper.
 
   // No form or submission handlers in report-only client
 
