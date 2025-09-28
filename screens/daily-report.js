@@ -137,15 +137,19 @@ export async function mount(container, opts = {}) {
         groups.forEach(g => {
           const card = document.createElement('div');
           card.className = 'mb-3 p-3 bg-neutral-800 rounded';
+          // subtle transition for background when expanded
+          card.style.transition = 'background-color 180ms ease';
           const title = escapeHtml(g.typeName || '');
           const total = g.totalQuantity ?? 0;
 
-          // header row: clickable label to toggle product list
+          // header row: clickable label to toggle product list (with chevron)
           const header = document.createElement('div');
           header.className = 'flex items-center justify-between cursor-pointer';
           header.setAttribute('role', 'button');
           header.setAttribute('tabindex', '0');
-          header.innerHTML = `<div class="text-sm text-neutral-400 font-semibold">${title}</div><div class="text-sm text-neutral-200 font-bold">${total}</div>`;
+          // chevron SVG placed on the left of the title
+          const chevronHtml = `<span class="chev" style="display:inline-block;width:14px;height:14px;margin-right:8px;transition:transform .18s ease"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="14" height="14"><path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+          header.innerHTML = `<div class="flex items-center"><span>${chevronHtml}</span><span class="text-sm text-neutral-400 font-semibold">${title}</span></div><div class="text-sm text-neutral-200 font-bold">${total}</div>`;
 
           // product list (hidden by default)
           const products = Array.isArray(g.products) ? g.products : [];
@@ -169,11 +173,18 @@ export async function mount(container, opts = {}) {
           // toggle handler (lazy render on first expand)
           let rendered = false;
           function toggleList() {
+            const chev = header.querySelector('.chev');
             if (listWrap.style.display === 'none') {
               if (!rendered) { renderProducts(); rendered = true; }
               listWrap.style.display = 'block';
+              if (chev) chev.style.transform = 'rotate(90deg)';
+              // highlight
+              card.style.backgroundColor = '#0f1724';
             } else {
               listWrap.style.display = 'none';
+              if (chev) chev.style.transform = 'rotate(0deg)';
+              // remove highlight
+              card.style.backgroundColor = '';
             }
           }
 
