@@ -1,4 +1,5 @@
-import { createSimpleTable, showToast } from '../simple-table.js';
+import { createSimpleTable } from '../simple-table.js';
+import { showToast } from '../helpers.js';
 import { productionColumns } from './columns.js';
 import { APP_CONFIG } from '../../config/app-config.js';
 

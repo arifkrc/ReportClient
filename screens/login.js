@@ -1,5 +1,5 @@
 // Login screen module
-import { showToast } from '../ui/simple-table.js';
+import { showToast } from '../ui/helpers.js';
 
 export async function mount(container, { setHeader, onLogin }) {
   setHeader('Giriş', 'Kullanıcı girişi');

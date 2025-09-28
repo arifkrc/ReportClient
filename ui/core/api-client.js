@@ -14,7 +14,15 @@ export class ApiClient {
     this.isHttps = baseUrl.startsWith('https://');
     this.isLocalhost = baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1');
     
-    console.log(`🔧 ApiClient initialized: ${baseUrl} (HTTPS: ${this.isHttps}, Localhost: ${this.isLocalhost})`);
+    // Determine read-only mode from global config if available
+    try {
+      const cfg = (typeof APP_CONFIG !== 'undefined') ? APP_CONFIG : (typeof window !== 'undefined' ? window.APP_CONFIG : undefined);
+      this.readOnly = Boolean(cfg && cfg.READ_ONLY);
+    } catch (e) {
+      this.readOnly = false;
+    }
+
+    console.log(`🔧 ApiClient initialized: ${baseUrl} (HTTPS: ${this.isHttps}, Localhost: ${this.isLocalhost}, READ_ONLY: ${this.readOnly})`);
   }
 
   /**
@@ -37,28 +45,32 @@ export class ApiClient {
    * POST request
    */
   async post(endpoint, data = null, options = {}) {
-    return this._disabledWriteResponse();
+    if (this.readOnly) return this._disabledWriteResponse();
+    return this._request('POST', endpoint, data, options);
   }
 
   /**
    * PUT request
    */
   async put(endpoint, data = null, options = {}) {
-    return this._disabledWriteResponse();
+    if (this.readOnly) return this._disabledWriteResponse();
+    return this._request('PUT', endpoint, data, options);
   }
 
   /**
    * DELETE request
    */
   async delete(endpoint, options = {}) {
-    return this._disabledWriteResponse();
+    if (this.readOnly) return this._disabledWriteResponse();
+    return this._request('DELETE', endpoint, null, options);
   }
 
   /**
    * PATCH request
    */
   async patch(endpoint, data = null, options = {}) {
-    return this._disabledWriteResponse();
+    if (this.readOnly) return this._disabledWriteResponse();
+    return this._request('PATCH', endpoint, data, options);
   }
 
   /**

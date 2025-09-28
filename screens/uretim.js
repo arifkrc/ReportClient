@@ -26,6 +26,50 @@ export async function mount(container, { setHeader }) {
   }
   setDefaultDate();
 
+  // Render the date picker control into #uretim-controls
+  const controlsEl = container.querySelector('#uretim-controls');
+  if (controlsEl) {
+    controlsEl.innerHTML = `
+      <label class="text-sm text-neutral-400 mr-2">Tarih:</label>
+      <input type="date" name="tarih" class="px-2 py-1 bg-neutral-700 rounded text-sm" />
+      <button id="uretim-apply-date" class="ml-2 px-3 py-1 rounded bg-blue-600 text-white text-sm">Uygula</button>
+      <span class="ml-3 text-xs text-neutral-500">Tarih girin ve Enter veya Uygula ile raporu yükleyin.</span>
+    `;
+
+    const dateInput = controlsEl.querySelector('input[name="tarih"]');
+    const applyBtn = controlsEl.querySelector('#uretim-apply-date');
+
+    // set default
+    if (dateInput && !dateInput.value) {
+      const today = new Date();
+      dateInput.value = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    }
+
+    const applyDate = () => {
+      const val = dateInput.value;
+      if (!val) {
+        showToast('Lütfen bir tarih seçin', 'warning');
+        return;
+      }
+      // reload the table and pass startDate and endDate as ISO date
+      try {
+        if (tableContainer && typeof tableContainer.reload === 'function') {
+          tableContainer.reload({ startDate: val, endDate: val, page: 1 });
+          showToast('Tarih uygulandı: ' + val, 'success');
+        } else if (uretimTable && typeof uretimTable.reload === 'function') {
+          uretimTable.reload({ startDate: val, endDate: val, page: 1 });
+          showToast('Tarih uygulandı: ' + val, 'success');
+        }
+      } catch (e) {
+        console.error('applyDate error', e);
+        showToast('Tarih uygulanamadı', 'error');
+      }
+    };
+
+    applyBtn.addEventListener('click', applyDate);
+    dateInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyDate(); });
+  }
+
   // Initialize the production table and mount it
   const tableContainer = container.querySelector('#uretim-table-container');
   const uretimTable = createUretimTable(APP_CONFIG.API.BASE_URL);
