@@ -20,7 +20,7 @@ export async function mount(container, opts = {}) {
       <div class="flex items-center justify-between mb-4">
         <div>
           <h3 class="text-lg font-semibold">Günlük Rapor</h3>
-          <div class="text-sm text-neutral-400">Günlük üretim özeti - API kaynak: /Reports/daily</div>
+          <div class="text-sm text-neutral-400">Günlük üretim özeti</div>
         </div>
     <div class="flex items-center gap-2">
             <input id="daily-date" type="date" class="px-2 py-1 rounded bg-neutral-800 text-neutral-200" aria-label="Rapor tarihi" />
@@ -65,6 +65,23 @@ export async function mount(container, opts = {}) {
           <div id="daily-shipments" class="mt-0"></div>
         </div>
       </div>
+
+      <!-- Full-width carryover details section -->
+      <div id="carryover-details-container" class="mt-6" style="display:none">
+        <div class="bg-neutral-800 rounded-lg p-4">
+          <div class="flex items-center justify-between mb-4">
+            <h4 class="text-lg font-semibold text-neutral-200" id="carryover-details-title">Carryover Detayları</h4>
+            <button id="carryover-details-close" class="px-3 py-1 bg-neutral-700 hover:bg-neutral-600 rounded text-sm text-neutral-300 hover:text-white transition-colors">
+              ✕ Kapat
+            </button>
+          </div>
+          <div id="carryover-details-content" class="bg-neutral-900 rounded-lg p-4">
+            <div class="text-center text-neutral-400 py-8">
+              <div class="animate-pulse">Detaylar yükleniyor...</div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   `;
 
@@ -82,6 +99,305 @@ export async function mount(container, opts = {}) {
     const d = new Date();
     d.setDate(d.getDate() - 1); // default to 1 day ago
     dateInput.value = d.toISOString().slice(0,10);
+  }
+
+  // Function to show detailed carryover orders when a chart column is clicked
+  window.showCarryoverDetails = async function showCarryoverDetails(productType, carryoverValue) {
+    const detailsContainer = container.querySelector('#carryover-details-container');
+    const detailsContent = container.querySelector('#carryover-details-content');
+    const detailsTitle = container.querySelector('#carryover-details-title');
+    
+    if (!detailsContainer || !detailsContent || !detailsTitle) return;
+    
+    // Show the details container and set loading state
+    detailsContainer.style.display = 'block';
+    detailsTitle.textContent = `${productType} - ${carryoverValue} hafta gecikme`;
+    detailsContent.innerHTML = '<div class="text-center text-neutral-400 py-4">Detaylar yükleniyor...</div>';
+    
+    try {
+      // API call to get detailed carryover orders (real-time data, no date filter needed)
+      const api = new ApiClient(APP_CONFIG.API.BASE_URL);
+      const params = new URLSearchParams({
+        productType: productType,
+        carryoverValue: carryoverValue === '15+' ? '15' : carryoverValue,
+        includeDetails: 'true'
+      });
+      
+      const endpoint = `/Reports/carryover-details?${params.toString()}`;
+      const res = await api.get(endpoint);
+      
+      let orders;
+      try {
+        orders = ApiResponseHelpers.extractData(res);
+      } catch (err) {
+        console.error('Carryover details extractData error', res, err);
+        throw new Error(err.message || 'API response format error');
+      }
+      
+      if (!Array.isArray(orders) || orders.length === 0) {
+        // Show the API message if available
+        const message = res.data?.message || `Bu kategoride geciken sipariş bulunamadı`;
+        detailsContent.innerHTML = `
+          <div class="text-center text-neutral-400 py-4">
+            <div class="text-sm">${escapeHtml(message)}</div>
+            <div class="text-xs mt-1 text-neutral-500">${productType} - ${carryoverValue} hafta gecikme</div>
+          </div>
+        `;
+        return;
+      }
+      
+      // Generate orders table with API message
+      const apiMessage = res.data?.message;
+      const tableHTML = generateCarryoverOrdersTable(orders);
+      
+      detailsContent.innerHTML = `
+        ${apiMessage ? `<div class="mb-2 text-xs text-green-400 bg-green-900/20 p-2 rounded">${escapeHtml(apiMessage)}</div>` : ''}
+        ${tableHTML}
+      `;
+      
+    } catch (error) {
+      console.error('Error loading carryover details:', error);
+      detailsContent.innerHTML = `
+        <div class="text-center text-rose-400 py-4">
+          <div class="text-sm">Detaylar yüklenirken hata oluştu</div>
+          <div class="text-xs mt-1">${escapeHtml(error.message || 'Unknown error')}</div>
+          <button onclick="showCarryoverDetails('${productType}', '${carryoverValue}')" 
+                  class="mt-2 px-2 py-1 bg-neutral-700 rounded text-xs text-white">Tekrar Dene</button>
+        </div>
+      `;
+    }
+  };
+
+  // Function to toggle text display (expand/collapse truncated text)
+  window.toggleText = function toggleText(elementId) {
+    const shortEl = document.getElementById(`${elementId}_short`);
+    const fullEl = document.getElementById(`${elementId}_full`);
+    
+    if (shortEl && fullEl) {
+      if (shortEl.style.display === 'none') {
+        // Currently showing full, switch to short
+        shortEl.style.display = 'inline';
+        fullEl.style.display = 'none';
+      } else {
+        // Currently showing short, switch to full
+        shortEl.style.display = 'none';
+        fullEl.style.display = 'inline';
+      }
+    }
+  };
+
+  // Function to show all carryover orders for a specific product type
+  window.showAllCarryoverOrders = async function showAllCarryoverOrders(productType) {
+    const detailsContainer = container.querySelector('#carryover-details-container');
+    const detailsContent = container.querySelector('#carryover-details-content');
+    const detailsTitle = container.querySelector('#carryover-details-title');
+    
+    if (!detailsContainer || !detailsContent || !detailsTitle) return;
+    
+    // Show the details container and set loading state
+    detailsContainer.style.display = 'block';
+    detailsTitle.textContent = `${productType} - Tüm Geciken Siparişler`;
+    detailsContent.innerHTML = '<div class="text-center text-neutral-400 py-4">Tüm geciken siparişler yükleniyor...</div>';
+    
+    try {
+      // API call to get all carryover orders for this product type
+      const api = new ApiClient(APP_CONFIG.API.BASE_URL);
+      const params = new URLSearchParams({
+        productType: productType,
+        includeDetails: 'true'
+        // No carryoverValue parameter = get all weeks
+      });
+      
+      const endpoint = `/Reports/carryover-details?${params.toString()}`;
+      const res = await api.get(endpoint);
+      
+      let orders;
+      try {
+        orders = ApiResponseHelpers.extractData(res);
+      } catch (err) {
+        console.error('All carryover details extractData error', res, err);
+        throw new Error(err.message || 'API response format error');
+      }
+      
+      if (!Array.isArray(orders) || orders.length === 0) {
+        const message = res.data?.message || `${productType} için geciken sipariş bulunamadı`;
+        detailsContent.innerHTML = `
+          <div class="text-center text-neutral-400 py-4">
+            <div class="text-sm">${escapeHtml(message)}</div>
+            <div class="text-xs mt-1 text-neutral-500">${productType} - Tüm geciken siparişler</div>
+          </div>
+        `;
+        return;
+      }
+      
+      // Sort orders by delay weeks (descending - most delayed first)
+      orders.sort((a, b) => (b.delayDays || 0) - (a.delayDays || 0));
+      
+      // Generate orders table with API message and grouping info
+      const apiMessage = res.data?.message;
+      const tableHTML = generateCarryoverOrdersTable(orders, true); // true = show week grouping
+      
+      detailsContent.innerHTML = `
+        ${apiMessage ? `<div class="mb-2 text-xs text-blue-400 bg-blue-900/20 p-2 rounded">${escapeHtml(apiMessage)}</div>` : ''}
+        ${tableHTML}
+      `;
+      
+    } catch (error) {
+      console.error('Error loading all carryover details:', error);
+      detailsContent.innerHTML = `
+        <div class="text-center text-rose-400 py-4">
+          <div class="text-sm">Tüm geciken siparişler yüklenirken hata oluştu</div>
+          <div class="text-xs mt-1">${escapeHtml(error.message || 'Unknown error')}</div>
+          <button onclick="showAllCarryoverOrders('${productType}')" 
+                  class="mt-2 px-2 py-1 bg-neutral-700 rounded text-xs text-white">Tekrar Dene</button>
+        </div>
+      `;
+    }
+  };
+  
+  // Function to generate HTML table for carryover orders
+  function generateCarryoverOrdersTable(orders, showWeekGrouping = false) {
+    // Helper function to generate individual order row
+    function generateOrderRow(order) {
+      // Use your actual API response field names
+      const orderCreatedDate = order.orderCreatedDate ? new Date(order.orderCreatedDate).toLocaleDateString('tr-TR') : '-';
+      const delayWeeks = order.delayDays || 0; // delayDays is actually weeks, not days
+      const orderCount = order.orderCount || 0;
+      const completedQuantity = order.completedQuantity || 0;
+      const remainingQuantity = orderCount - completedQuantity; // Calculate remaining as order - completed
+      const customerName = order.customerName || '-';
+      const orderNumber = order.orderNumber || '-';
+      const productDisplay = order.productName || order.productCode || '-';
+      const variants = order.variants || '-';
+      const orderWeek = order.orderWeek || '-';
+      
+      // Generate unique IDs for expand/collapse functionality
+      const productId = `product_${Math.random().toString(36).substr(2, 9)}`;
+      const variantsId = `variants_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Check if truncation is needed
+      const productTruncated = String(productDisplay).length > 50;
+      const variantsTruncated = String(variants).length > 100;
+      
+      const productContent = productTruncated ? 
+        `<span id="${productId}_short">${escapeHtml(String(productDisplay).slice(0, 47))}... <button onclick="toggleText('${productId}')" class="text-blue-400 hover:text-blue-300 underline cursor-pointer text-xs ml-1">daha fazla</button></span>
+         <span id="${productId}_full" style="display:none">${escapeHtml(String(productDisplay))} <button onclick="toggleText('${productId}')" class="text-blue-400 hover:text-blue-300 underline cursor-pointer text-xs ml-1">daha az</button></span>` :
+        escapeHtml(String(productDisplay));
+      
+      const variantsContent = variants !== '-' && variantsTruncated ? 
+        `<div class="text-neutral-500 text-sm mt-1">
+           <span id="${variantsId}_short">${escapeHtml(String(variants).slice(0, 97))}... <button onclick="toggleText('${variantsId}')" class="text-blue-400 hover:text-blue-300 underline cursor-pointer text-xs ml-1">daha fazla</button></span>
+           <span id="${variantsId}_full" style="display:none">${escapeHtml(String(variants))} <button onclick="toggleText('${variantsId}')" class="text-blue-400 hover:text-blue-300 underline cursor-pointer text-xs ml-1">daha az</button></span>
+         </div>` :
+        variants !== '-' ? `<div class="text-neutral-500 text-sm mt-1">${escapeHtml(String(variants))}</div>` : '';
+      
+      return `
+        <tr class="hover:bg-neutral-800 transition-colors">
+          <td class="px-4 py-3 font-mono text-blue-400">${escapeHtml(String(orderNumber))}</td>
+          <td class="px-4 py-3">
+            <div class="font-medium text-neutral-200">${productContent}</div>
+            ${variantsContent}
+          </td>
+          <td class="px-4 py-3 text-neutral-300">${escapeHtml(String(customerName))}</td>
+          <td class="px-4 py-3 text-right">
+            <div class="font-semibold text-neutral-200">${orderCount.toLocaleString()}</div>
+            <div class="text-neutral-500 text-sm">Tamamlanan: ${completedQuantity.toLocaleString()}</div>
+          </td>
+          <td class="px-4 py-3 text-center">
+            <span class="px-3 py-1 rounded-full text-sm font-medium ${remainingQuantity > 50 ? 'bg-red-600' : remainingQuantity > 20 ? 'bg-orange-600' : 'bg-yellow-600'} text-white">
+              ${remainingQuantity.toLocaleString()}
+            </span>
+          </td>
+          <td class="px-4 py-3">
+            <div class="text-neutral-200">${orderCreatedDate}</div>
+            <div class="text-neutral-500 text-sm">${orderWeek}</div>
+          </td>
+          <td class="px-4 py-3 text-center">
+            <span class="px-3 py-1 rounded-full text-sm font-medium ${delayWeeks > 2 ? 'bg-red-600' : delayWeeks > 1 ? 'bg-orange-600' : 'bg-yellow-600'} text-white">
+              ${delayWeeks} hafta
+            </span>
+          </td>
+        </tr>
+      `;
+    }
+
+    // Generate rows with or without grouping
+    let rows = '';
+    if (showWeekGrouping) {
+      // Group orders by delay weeks
+      const weekGroups = {};
+      orders.forEach(order => {
+        const delayWeeks = order.delayDays || 0;
+        const weekKey = delayWeeks >= 15 ? '15+' : String(delayWeeks);
+        if (!weekGroups[weekKey]) weekGroups[weekKey] = [];
+        weekGroups[weekKey].push(order);
+      });
+      
+      // Sort week keys numerically (most delayed first)
+      const sortedWeeks = Object.keys(weekGroups).sort((a, b) => {
+        const aNum = a === '15+' ? 999 : parseInt(a);
+        const bNum = b === '15+' ? 999 : parseInt(b);
+        return bNum - aNum;
+      });
+      
+      sortedWeeks.forEach(weekKey => {
+        const weekOrders = weekGroups[weekKey];
+        const weekLabel = weekKey === '15+' ? '15+ Hafta' : `${weekKey} Hafta`;
+        
+        // Week group header
+        rows += `
+          <tr class="bg-neutral-700">
+            <td colspan="7" class="px-4 py-2 text-sm font-semibold text-neutral-200">
+              📅 ${weekLabel} Gecikme (${weekOrders.length} sipariş)
+            </td>
+          </tr>
+        `;
+        
+        // Orders in this week group
+        weekOrders.forEach(order => {
+          rows += generateOrderRow(order);
+        });
+      });
+    } else {
+      // Simple list without grouping
+      rows = orders.map(order => generateOrderRow(order)).join('');
+    }
+    
+    // Calculate totals for summary
+    const totalOrders = orders.length;
+    const totalOrderCount = orders.reduce((sum, o) => sum + (o.orderCount || 0), 0);
+    const totalCompleted = orders.reduce((sum, o) => sum + (o.completedQuantity || 0), 0);
+    const totalRemaining = orders.reduce((sum, o) => sum + ((o.orderCount || 0) - (o.completedQuantity || 0)), 0);
+    
+    return `
+      <div class="mb-3 p-2 bg-neutral-800 rounded">
+        <div class="text-xs text-neutral-300 font-semibold mb-1">Özet</div>
+        <div class="grid grid-cols-4 gap-2 text-xs">
+          <div><span class="text-neutral-400">Sipariş:</span> <span class="font-medium">${totalOrders}</span></div>
+          <div><span class="text-neutral-400">Toplam Adet:</span> <span class="font-medium">${totalOrderCount}</span></div>
+          <div><span class="text-neutral-400">Tamamlanan:</span> <span class="font-medium text-green-400">${totalCompleted}</span></div>
+          <div><span class="text-neutral-400">Kalan:</span> <span class="font-medium text-orange-400">${totalRemaining}</span></div>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="bg-neutral-800 text-neutral-300 border-b border-neutral-600">
+              <th class="px-4 py-3 text-left font-medium">Sipariş No</th>
+              <th class="px-4 py-3 text-left font-medium">Ürün Bilgisi</th>
+              <th class="px-4 py-3 text-left font-medium">Müşteri</th>
+              <th class="px-4 py-3 text-right font-medium">Sipariş Miktarı</th>
+              <th class="px-4 py-3 text-center font-medium">Kalan Miktar</th>
+              <th class="px-4 py-3 text-left font-medium">Sipariş Tarihi</th>
+              <th class="px-4 py-3 text-center font-medium">Gecikme (Hafta)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-neutral-700">
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
   }
 
   async function loadDaily(dateIso) {
@@ -204,6 +520,21 @@ export async function mount(container, opts = {}) {
         typesContainer.appendChild(card);
       }
       const carry = Array.isArray(payload.carryoverCounts) ? payload.carryoverCounts : [];
+      console.log('=== CARRYOVER DEBUG START ===');
+      console.log('Payload carryoverCounts:', payload.carryoverCounts);
+      console.log('Processed carry array:', carry);
+      console.log('Carry array length:', carry.length);
+      if (carry.length > 0) {
+        console.log('First carryover item structure:', carry[0]);
+        console.log('All carryover items:', carry.map((c, i) => ({
+          index: i,
+          productType: c.productType,
+          buckets: c.buckets,
+          bucketsLength: Array.isArray(c.buckets) ? c.buckets.length : 'not array'
+        })));
+      }
+      console.log('=== CARRYOVER DEBUG END ===');
+      
       const pyramidEl = container.querySelector('#daily-carryover-pyramid');
       const carryListEl = container.querySelector('#daily-carryover-list');
       const carryToggle = container.querySelector('#daily-carryover-toggle');
@@ -235,15 +566,20 @@ export async function mount(container, opts = {}) {
         const seriesMap = { Disk: {}, Kampana: {}, Poyra: {} };
 
         // fill seriesMap with counts per carryoverValue
+        console.log('Raw carryover data:', carry);
         carry.forEach(ct => {
           const name = normalizeType(ct.productType);
           const buckets = Array.isArray(ct.buckets) ? ct.buckets : [];
+          console.log(`Processing ${ct.productType} -> ${name}, buckets:`, buckets);
           buckets.forEach(b => {
             const v = b.carryoverValue;
             const key = (v >= 15) ? '15+' : String(v);
-            seriesMap[name][key] = (seriesMap[name][key] || 0) + (b.count || 0);
+            const count = b.count || 0;
+            console.log(`  Bucket: ${v} -> ${key}, count: ${count}`);
+            seriesMap[name][key] = (seriesMap[name][key] || 0) + count;
           });
         });
+        console.log('Final seriesMap:', seriesMap);
 
         // build bucket labels 1..14 and 15+
         const bucketLabels = [];
@@ -265,7 +601,10 @@ export async function mount(container, opts = {}) {
           pyramidEl.innerHTML = '';
           const chartTitle = document.createElement('div');
           chartTitle.className = 'text-sm text-neutral-300 font-semibold mb-2';
-          chartTitle.textContent = 'Carryover - 1..15+';
+          chartTitle.innerHTML = `
+            <span>Carryover - 1..15+ Hafta</span>
+            <span class="text-xs text-neutral-500 ml-2 font-normal">💡 Kolonlara tıklayarak detayları görüntüleyin</span>
+          `;
           pyramidEl.appendChild(chartTitle);
 
           const chartScroll = document.createElement('div');
@@ -313,6 +652,7 @@ export async function mount(container, opts = {}) {
             const kampVal = seriesMap['Kampana'][lbl] || 0;
             const poyVal = seriesMap['Poyra'][lbl] || 0;
             const bucketTotal = diskVal + kampVal + poyVal;
+            console.log(`Bucket ${lbl}: Disk=${diskVal}, Kampana=${kampVal}, Poyra=${poyVal}, Total=${bucketTotal}`);
             if (bucketTotal === 0) {
               // skip zero columns to reduce clutter
               return;
@@ -373,7 +713,24 @@ export async function mount(container, opts = {}) {
               barInner.style.width = '100%';
               barInner.style.background = colors[sn] || colors.Other;
               barInner.style.display = 'block';
-              barInner.title = `${sn} ${lbl}: ${val}`;
+              barInner.title = `${sn} ${lbl}: ${val} (click for details)`;
+              
+              // Make the bar clickable and add hover effects
+              barInner.style.cursor = 'pointer';
+              barInner.style.transition = 'all 0.2s ease';
+              barInner.addEventListener('mouseenter', () => {
+                barInner.style.filter = 'brightness(1.2)';
+                barInner.style.transform = 'scaleY(1.05)';
+              });
+              barInner.addEventListener('mouseleave', () => {
+                barInner.style.filter = 'brightness(1)';
+                barInner.style.transform = 'scaleY(1)';
+              });
+              
+              // Add click handler to show carryover details
+              barInner.addEventListener('click', async () => {
+                await showCarryoverDetails(sn, lbl);
+              });
 
               barOuter.appendChild(barInner);
 
@@ -395,13 +752,30 @@ export async function mount(container, opts = {}) {
           chartScroll.appendChild(chartArea);
           pyramidEl.appendChild(chartScroll);
 
-          // legend
+          // legend with clickable product types
           const legend = document.createElement('div');
-          legend.className = 'mt-2 flex gap-4 text-sm items-center';
+          legend.className = 'mt-2 flex gap-4 text-sm items-center flex-wrap';
           seriesNames.forEach(sn => {
             const entry = document.createElement('div');
             entry.className = 'flex items-center gap-2';
-            entry.innerHTML = `<span style="display:inline-block;width:12px;height:12px;background:${colors[sn]};border-radius:2px"></span><span>${sn}</span>`;
+            
+            // Check if this product type has any carryover data
+            const hasData = Object.keys(seriesMap[sn]).some(key => seriesMap[sn][key] > 0);
+            
+            if (hasData) {
+              // Make the product type clickable
+              entry.innerHTML = `
+                <span style="display:inline-block;width:12px;height:12px;background:${colors[sn]};border-radius:2px"></span>
+                <span class="cursor-pointer hover:text-white hover:underline transition-colors" onclick="showAllCarryoverOrders('${sn}')" title="Tüm ${sn} carryover siparişlerini görmek için tıklayın">${sn}</span>
+              `;
+            } else {
+              // Non-clickable for types without data
+              entry.innerHTML = `
+                <span style="display:inline-block;width:12px;height:12px;background:${colors[sn]};border-radius:2px"></span>
+                <span class="text-neutral-500">${sn}</span>
+              `;
+            }
+            
             legend.appendChild(entry);
           });
           pyramidEl.appendChild(legend);
@@ -652,6 +1026,15 @@ export async function mount(container, opts = {}) {
   if (btnCsv) btnCsv.addEventListener('click', exportCsv);
   if (btnPdf) btnPdf.addEventListener('click', exportPdf);
 
+  // Wire carryover details close button
+  const detailsCloseBtn = container.querySelector('#carryover-details-close');
+  if (detailsCloseBtn) {
+    detailsCloseBtn.addEventListener('click', () => {
+      const detailsContainer = container.querySelector('#carryover-details-container');
+      if (detailsContainer) detailsContainer.style.display = 'none';
+    });
+  }
+
   // Global keyboard shortcuts (only when focus is not in an input)
   let _dailyGlobalKeyHandler = (e) => {
     const active = document.activeElement;
@@ -674,4 +1057,7 @@ export async function unmount(container) {
   try { const el = container.querySelector('#daily-report-container'); if (el) el.innerHTML = ''; } catch(e){}
   try { container.innerHTML = ''; } catch(e){}
   try { window.removeEventListener('keydown', _dailyGlobalKeyHandler); } catch(e) { /* ignore */ }
+  try { delete window.showCarryoverDetails; } catch(e) { /* ignore */ }
+  try { delete window.showAllCarryoverOrders; } catch(e) { /* ignore */ }
+  try { delete window.toggleText; } catch(e) { /* ignore */ }
 }
