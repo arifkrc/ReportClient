@@ -7,17 +7,8 @@ const axios = require('axios');
 const axiosRetry = require('axios-retry').default || require('axios-retry');
 const os = require('os');
 
-// API Configuration - HTTPS backend için
-const API_BASE_URL = 'https://localhost:7287/api';
-
-// Configure axios to ignore self-signed certificates for localhost
-process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
-
-// HTTPS localhost için Axios SSL konfigürasyonu
-axios.defaults.httpsAgent = new (require('https').Agent)({
-  rejectUnauthorized: false,
-  checkServerIdentity: () => undefined
-});
+// API Configuration - HTTP backend
+const API_BASE_URL = 'http://localhost:5006/api';
 
 // Axios global ayarları
 axios.defaults.timeout = 10000; // 10 saniye timeout
@@ -109,21 +100,21 @@ try {
   console.warn('⚠️ Cache directory setup warning:', error.message);
 }
 
-// 2. Windows cache problemleri için Chromium flags
-app.commandLine.appendSwitch('--disable-gpu-cache');
-app.commandLine.appendSwitch('--disk-cache-size', '1');
-app.commandLine.appendSwitch('--media-cache-size', '1');
-app.commandLine.appendSwitch('--disable-background-timer-throttling');
-app.commandLine.appendSwitch('--disable-renderer-backgrounding');
-app.commandLine.appendSwitch('--disable-backgrounding-occluded-windows');
+// 2. Chromium flags (without leading -- prefix)
+app.commandLine.appendSwitch('disable-gpu-cache');
+app.commandLine.appendSwitch('disk-cache-size', '1');
+app.commandLine.appendSwitch('media-cache-size', '1');
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
 
 // 3. Performance vs Error balance
-app.commandLine.appendSwitch('--no-sandbox');
-app.commandLine.appendSwitch('--disable-dev-shm-usage');
-app.commandLine.appendSwitch('--disable-gpu-sandbox');
+app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('disable-dev-shm-usage');
+app.commandLine.appendSwitch('disable-gpu-sandbox');
 
 // 4. Log level düşür (cache hatalarını gizle)
-app.commandLine.appendSwitch('--log-level', '2'); // Sadece FATAL hatalar
+app.commandLine.appendSwitch('log-level', '2');
 
 // 5. Cache temizleme fonksiyonu
 function clearAppCache() {

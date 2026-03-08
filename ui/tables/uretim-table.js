@@ -21,7 +21,7 @@ export function createUretimTable(apiBaseUrl) {
     },
     // Column definitions (shared)
     columns: productionColumns,
-    searchFields: ['productCode', 'productName', 'shift', 'operation', 'shiftSupervisor'],
+    searchFields: ['productCode', 'productName', 'shift', 'operation', 'shiftSupervisor', 'machine', 'operatorName', 'line'],
     title: 'Üretim Takip Formları',
     // Normalize API wrapper: createSimpleTable expects array of records; the loader will pass through result.data when needed
     renderCell: (value, record, column) => {
@@ -34,23 +34,17 @@ export function createUretimTable(apiBaseUrl) {
         }
 
         if (column.field === 'quantity') {
-          return `<span class="text-right">${value != null ? value : '-'}</span>`;
+          return `<span class="font-medium">${value != null ? value : '-'}</span>`;
         }
 
-            if (column.field === 'operation') {
-              // Prefer human-friendly operation name when available
-              const opName = record.operationName || record.operationDisplay || record.operationNameTurkish || null;
-              if (opName) return `<span>${opName}</span>`;
-              // fallback to raw value
-              return value || '-';
-            }
-
-        if (column.field === 'cycleTime') {
-          if (value == null || value === '') return '-';
-          return `${value} sn`;
+        const defectFields = ['castingDefect', 'processingDefect', 'cleaning'];
+        if (defectFields.includes(column.field)) {
+          const n = Number(value);
+          if (!value || n === 0) return `<span class="text-neutral-500">0</span>`;
+          return `<span class="text-rose-400 font-medium">${n}</span>`;
         }
 
-        return value || '-';
+        return value != null && value !== '' ? String(value) : '-';
       } catch (err) {
         console.error('Uretim renderCell error:', err);
         return value || '-';
@@ -89,11 +83,9 @@ export function createUretimTable(apiBaseUrl) {
       if (!data.date || String(data.date).trim() === '') errors.push('Tarih gerekli');
       if (!data.productCode || String(data.productCode).trim() === '') errors.push('Ürün kodu gerekli');
       if (data.quantity != null && isNaN(Number(data.quantity))) errors.push('Adet sayı olmalı');
-      if (data.cycleTime != null && isNaN(Number(data.cycleTime))) errors.push('Çevrim sayısı geçerli olmalı');
       return { isValid: errors.length === 0, errors };
     },
     formatPayload: (data) => ({
-      // Map local edit fields to API expected property names
       date: data.date,
       shift: data.shift,
       line: data.line,
@@ -102,13 +94,12 @@ export function createUretimTable(apiBaseUrl) {
       operatorName: data.operatorName,
       sectionSupervisor: data.sectionSupervisor,
       productCode: data.productCode,
-      productName: data.productName,
+      productName: data.productName || '',
       quantity: data.quantity != null ? Number(data.quantity) : 0,
-      operation: data.operation,
+      operation: data.operation || '',
       castingDefect: data.castingDefect != null ? Number(data.castingDefect) : 0,
       processingDefect: data.processingDefect != null ? Number(data.processingDefect) : 0,
-      cleaning: data.cleaning != null ? Number(data.cleaning) : 0,
-      cycleTime: data.cycleTime != null ? Number(data.cycleTime) : 0
+      cleaning: data.cleaning != null ? Number(data.cleaning) : 0
     })
   };
 

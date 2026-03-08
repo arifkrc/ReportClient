@@ -1,14 +1,21 @@
 // Shared column descriptors to reduce duplication across table configs
+// Fields match the actual ProductionTrackingFormDto returned by the backend
 export const productionColumns = [
-  { field: 'date', header: 'Tarih', className: 'text-xs' },
-  { field: 'shift', header: 'Vardiya' },
-  { field: 'shiftSupervisor', header: 'Vardiya Sorum.' },
-  { field: 'productCode', header: 'Ürün Kodu', className: 'font-mono' },
-  { field: 'productName', header: 'Ürün Adı' },
-  { field: 'operation', header: 'Operasyon' },
-  { field: 'quantity', header: 'Adet', className: 'text-right' },
-  { field: 'cycleTime', header: 'Çevrim (sn)', className: 'text-xs text-neutral-400' },
-  { field: 'addedDateTime', header: 'Eklenme', className: 'text-neutral-400 text-xs' }
+  { field: 'date',              header: 'Tarih',         className: 'text-xs' },
+  { field: 'shift',             header: 'Vardiya' },
+  { field: 'line',              header: 'Hat' },
+  { field: 'shiftSupervisor',   header: 'Vardiya Sorum.' },
+  { field: 'machine',           header: 'Makine' },
+  { field: 'operatorName',      header: 'Operatör' },
+  { field: 'sectionSupervisor', header: 'Bölüm Sorum.' },
+  { field: 'productCode',       header: 'Ürün Kodu',    className: 'font-mono' },
+  { field: 'productName',       header: 'Ürün Adı' },
+  { field: 'quantity',          header: 'Adet',         className: 'text-right' },
+  { field: 'operation',         header: 'Operasyon' },
+  { field: 'castingDefect',     header: 'Döküm Hat.',   className: 'text-right text-xs' },
+  { field: 'processingDefect',  header: 'İşleme Hat.',  className: 'text-right text-xs' },
+  { field: 'cleaning',          header: 'Temizlik',     className: 'text-right text-xs' },
+  { field: 'addedDateTime',     header: 'Eklenme',      className: 'text-neutral-400 text-xs' }
 ];
 
 export const productsColumns = [

@@ -457,7 +457,7 @@ export function createSimpleTable(config) {
       
       if (err.message.includes('Failed to fetch') || err.name === 'TypeError') {
         errorMessage = 'Backend sunucusuna bağlanılamıyor';
-        troubleshooting = '🔧 Kontrol edin: Backend server çalışıyor mu? (localhost:7287)';
+        troubleshooting = '🔧 Kontrol edin: Backend server çalışıyor mu? (localhost:5006)';
       } else if (err.message.includes('ERR_EMPTY_RESPONSE')) {
         errorMessage = 'Sunucu boş yanıt döndürdü';
         troubleshooting = '🔧 Kontrol edin: API endpoint\'i doğru mu?';

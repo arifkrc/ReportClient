@@ -5,7 +5,7 @@
 
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: 'https://localhost:7287/api',
+  BASE_URL: 'http://localhost:5006/api',
   TIMEOUT: 30000, // 30 saniye
   RETRY_COUNT: 3,
   

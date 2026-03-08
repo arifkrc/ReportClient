@@ -11,6 +11,9 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// Module-level product type cache (productCode → type string)
+let _productTypeCache = null;
+
 export async function mount(container, opts = {}) {
   const setHeader = opts.setHeader || (() => {});
   setHeader('Günlük Rapor', 'Bugünün üretim özetleri');
@@ -96,9 +99,8 @@ export async function mount(container, opts = {}) {
       if (saved) { dateInput.value = saved; return; }
     } catch (e) { /* ignore */ }
 
-    const d = new Date();
-    d.setDate(d.getDate() - 1); // default to 1 day ago
-    dateInput.value = d.toISOString().slice(0,10);
+    // Default to last known date with data in DB
+    dateInput.value = '2025-09-27';
   }
 
   // Function to show detailed carryover orders when a chart column is clicked
@@ -401,437 +403,277 @@ export async function mount(container, opts = {}) {
   }
 
   async function loadDaily(dateIso) {
+    const TYPE_ORDER = ['DISK', 'KAMPANA', 'POYRA'];
+    const TYPE_COLORS = { DISK: '#6366f1', KAMPANA: '#10b981', POYRA: '#f59e0b', 'DIGER': '#6b7280' };
+    function typeKey(raw) { const u = (raw || '').toUpperCase().replace('İ','I').replace('Ğ','G'); return TYPE_ORDER.includes(u) ? u : 'DIGER'; }
+    function typeLabel(k) { return k === 'DIGER' ? 'Diğer' : k.charAt(0) + k.slice(1).toLowerCase(); }
+
     try {
-      typesContainer.innerHTML = '';
-      // store payload for exports
-      let lastPayload = null;
+      typesContainer.innerHTML = '<div class="text-sm text-neutral-400 animate-pulse p-3">Yükleniyor...</div>';
       const api = new ApiClient(APP_CONFIG.API.BASE_URL);
-      // Call backend with ISO date (YYYY-MM-DD)
-      const endpoint = `/Reports/daily?date=${encodeURIComponent(dateIso)}`;
+
+      // === Faz 1: Günlük paketleme kayıtları ===
+      const nextDay = new Date(dateIso);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDayIso = nextDay.toISOString().slice(0, 10);
+      const endpoint = `/Packings/daterange?startDate=${encodeURIComponent(dateIso + 'T00:00:00')}&endDate=${encodeURIComponent(nextDayIso + 'T00:00:00')}`;
       const res = await api.get(endpoint);
-      let payload;
+      let records;
       try {
-        payload = ApiResponseHelpers.extractData(res);
+        records = ApiResponseHelpers.extractData(res);
       } catch (err) {
-        console.error('Reports/daily extractData error', res, err);
+        console.error('Packings/daterange extractData error', res, err);
         showToast('Günlük rapor yüklenemedi: ' + (err.message || 'unknown'), 'error');
+        typesContainer.innerHTML = `<div class="text-rose-400 p-3">${escapeHtml(err.message || 'Veri alınamadı')}</div>`;
         return;
       }
-      console.log('Reports/daily payload:', payload);
-  // persist last payload for exports
-  lastPayload = payload;
-      // Debug: log basic counts
-      console.log('Reports/daily production:', {
-        hasProduction: !!payload.production,
-        typeGroups: (payload.production && Array.isArray(payload.production.typeGroups)) ? payload.production.typeGroups.length : 0,
-        shipments: Array.isArray(payload.shipments) ? payload.shipments.length : 0
+      if (!Array.isArray(records)) {
+        showToast('Beklenmeyen veri formatı', 'error');
+        typesContainer.innerHTML = '<div class="text-rose-400 p-3">Beklenmeyen veri formatı</div>';
+        return;
+      }
+      const totalQty = records.reduce((sum, r) => sum + (r.quantity || 0), 0);
+
+      // === Faz 2: Ürün tip önbelleği (Products API, bir kez yüklenir) ===
+      if (!_productTypeCache) {
+        try {
+          const cache = {};
+          let pg = 1;
+          while (true) {
+            const pr = await api.get(`/Products/paged?pageNumber=${pg}&pageSize=200`);
+            const pd = ApiResponseHelpers.extractData(pr);
+            const items = (pd && pd.items) ? pd.items : [];
+            if (!items.length) break;
+            items.forEach(p => { if (p.productCode) cache[p.productCode] = p.type || ''; });
+            if (items.length < 200) break;
+            pg++;
+          }
+          _productTypeCache = cache;
+        } catch (e) {
+          console.warn('Product type cache failed', e);
+          _productTypeCache = {};
+        }
+      }
+
+      // === Faz 3: Tipe göre toplam ===
+      const byType = {};
+      records.forEach(r => {
+        const t = typeKey(_productTypeCache[r.productCode] || '');
+        byType[t] = (byType[t] || 0) + (r.quantity || 0);
       });
-      const prod = payload.production || {};
-      const total = prod.totalQuantity ?? prod.total ?? 0;
-      const start = prod.startDate ? new Date(prod.startDate).toLocaleString() : '-';
-      const end = prod.endDate ? new Date(prod.endDate).toLocaleString() : '-';
 
-      // Write grouped totals UI
-      container.querySelector('#daily-total').textContent = String(total);
-      container.querySelector('#daily-range').textContent = `${start} — ${end}`;
-  const shipmentTotals = payload.shipmentTotals || {};
-  // Show only Domestic + Abroad totals (omit combined)
-  const domesticTotals = shipmentTotals.domestic || {};
-  const abroadTotals = shipmentTotals.abroad || {};
-  const sumTotal = (domesticTotals.combinedTotal ?? domesticTotals.total ?? 0) + (abroadTotals.combinedTotal ?? abroadTotals.total ?? 0);
-  container.querySelector('#daily-shipments-total').textContent = String(sumTotal ?? '-');
-  const disk = (domesticTotals.diskTotal ?? 0) + (abroadTotals.diskTotal ?? 0);
-  const kamp = (domesticTotals.kampanaTotal ?? 0) + (abroadTotals.kampanaTotal ?? 0);
-  const poy = (domesticTotals.poyraTotal ?? 0) + (abroadTotals.poyraTotal ?? 0);
-  container.querySelector('#daily-shipments-sub').textContent = `Disk: ${disk} · Kampana: ${kamp} · Poyra: ${poy}`;
+      // === Faz 4: Hedefe göre (explodingTo) ===
+      const byDest = {};
+      records.forEach(r => {
+        const dest = (r.explodingTo || 'Belirtilmemiş').trim();
+        byDest[dest] = (byDest[dest] || 0) + (r.quantity || 0);
+      });
 
-      // Production by type: prefer production.typeGroups, fallback to productionTotals
-      const groups = Array.isArray(prod.typeGroups) ? prod.typeGroups : [];
+      // === Faz 5: Ürüne göre ===
+      const byProduct = {};
+      records.forEach(r => {
+        const key = r.productCode || 'Bilinmiyor';
+        if (!byProduct[key]) byProduct[key] = { productCode: key, productName: r.productName || '', type: _productTypeCache[key] || '', quantity: 0 };
+        byProduct[key].quantity += (r.quantity || 0);
+      });
+      const productList = Object.values(byProduct).sort((a, b) => b.quantity - a.quantity);
+
+      // === Faz 6: Özet başlık ===
+      container.querySelector('#daily-total').textContent = `${totalQty.toLocaleString('tr-TR')} adet`;
+      const rangeEl = container.querySelector('#daily-range');
+      rangeEl.textContent = `${records.length} kayıt`;
+      rangeEl.style.display = 'block';
+      container.querySelector('#daily-shipments-total').textContent = totalQty.toLocaleString('tr-TR');
+      container.querySelector('#daily-shipments-sub').textContent =
+        `Disk: ${(byType['DISK']||0).toLocaleString('tr-TR')} · Kampana: ${(byType['KAMPANA']||0).toLocaleString('tr-TR')} · Poyra: ${(byType['POYRA']||0).toLocaleString('tr-TR')}`;
+
+      // === Faz 7: Tip bazlı bar grafik + ürün tablosu ===
       typesContainer.innerHTML = '';
-      // Render production type groups as simple cards with product rows
-      if (groups.length) {
-        groups.forEach(g => {
-          const card = document.createElement('div');
-          card.className = 'mb-3 p-3 bg-neutral-800 rounded';
-          // subtle transition for background when expanded
-          card.style.transition = 'background-color 180ms ease';
-          const title = escapeHtml(g.typeName || '');
-          const total = g.totalQuantity ?? 0;
-
-          // header row: clickable label to toggle product list (with chevron)
-          const header = document.createElement('div');
-          header.className = 'flex items-center justify-between cursor-pointer';
-          header.setAttribute('role', 'button');
-          header.setAttribute('tabindex', '0');
-          // chevron SVG placed on the left of the title
-          const chevronHtml = `<span class="chev" style="display:inline-block;width:14px;height:14px;margin-right:8px;transition:transform .18s ease"><svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="14" height="14"><path d="M6 8l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
-          header.innerHTML = `<div class="flex items-center"><span>${chevronHtml}</span><span class="text-sm text-neutral-400 font-semibold">${title}</span></div><div class="text-sm text-neutral-200 font-bold">${total}</div>`;
-
-          // product list (hidden by default)
-          const products = Array.isArray(g.products) ? g.products : [];
-          const listWrap = document.createElement('div');
-          listWrap.style.display = 'none';
-          listWrap.className = 'mt-2 text-sm text-neutral-300';
-
-          function renderProducts() {
-            if (!products.length) {
-              listWrap.innerHTML = `<div class="text-xs text-neutral-500">Detay yok</div>`;
-              return;
-            }
-            let html = '<table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left;padding:4px">Kod</th><th style="text-align:left;padding:4px">Ürün</th><th style="text-align:right;padding:4px">Adet</th></tr></thead><tbody>';
-            products.forEach(p => {
-              html += `<tr><td style="padding:4px">${escapeHtml(p.productCode||'')}</td><td style="padding:4px">${escapeHtml(p.productName||'')}</td><td style="padding:4px;text-align:right">${p.quantity ?? 0}</td></tr>`;
-            });
-            html += '</tbody></table>';
-            listWrap.innerHTML = html;
-          }
-
-          // toggle handler (lazy render on first expand)
-          let rendered = false;
-          function toggleList() {
-            const chev = header.querySelector('.chev');
-            if (listWrap.style.display === 'none') {
-              if (!rendered) { renderProducts(); rendered = true; }
-              listWrap.style.display = 'block';
-              if (chev) chev.style.transform = 'rotate(90deg)';
-              // highlight
-              card.style.backgroundColor = '#0f1724';
-            } else {
-              listWrap.style.display = 'none';
-              if (chev) chev.style.transform = 'rotate(0deg)';
-              // remove highlight
-              card.style.backgroundColor = '';
-            }
-          }
-
-          header.addEventListener('click', toggleList);
-          header.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggleList(); } });
-
-          card.appendChild(header);
-          card.appendChild(listWrap);
-          typesContainer.appendChild(card);
-        });
-      } else if (payload.productionTotals) {
-        // fallback simple totals card
-        const pt = payload.productionTotals;
-        const card = document.createElement('div');
-        card.className = 'mb-3 p-3 bg-neutral-800 rounded';
-        card.innerHTML = `<div class="flex items-center justify-between"><div class="text-sm text-neutral-400 font-semibold">Tip Bazlı Üretim (Özet)</div><div class="text-sm text-neutral-200 font-bold">Disk: ${pt.diskTotal ?? 0} · Kampana: ${pt.kampanaTotal ?? 0} · Poyra: ${pt.poyraTotal ?? 0}</div></div>`;
-        typesContainer.appendChild(card);
-      }
-      const carry = Array.isArray(payload.carryoverCounts) ? payload.carryoverCounts : [];
-      console.log('=== CARRYOVER DEBUG START ===');
-      console.log('Payload carryoverCounts:', payload.carryoverCounts);
-      console.log('Processed carry array:', carry);
-      console.log('Carry array length:', carry.length);
-      if (carry.length > 0) {
-        console.log('First carryover item structure:', carry[0]);
-        console.log('All carryover items:', carry.map((c, i) => ({
-          index: i,
-          productType: c.productType,
-          buckets: c.buckets,
-          bucketsLength: Array.isArray(c.buckets) ? c.buckets.length : 'not array'
-        })));
-      }
-      console.log('=== CARRYOVER DEBUG END ===');
-      
-      const pyramidEl = container.querySelector('#daily-carryover-pyramid');
-      const carryListEl = container.querySelector('#daily-carryover-list');
-      const carryToggle = container.querySelector('#daily-carryover-toggle');
-      const carryoversEl = container.querySelector('#daily-carryovers');
-
-      if (carry.length === 0) {
-        if (carryoversEl) carryoversEl.innerHTML = '<div class="text-sm text-neutral-400">Carryover verisi yok</div>';
-        if (pyramidEl) pyramidEl.innerHTML = '';
-        if (carryListEl) carryListEl.innerHTML = '';
+      if (records.length === 0) {
+        typesContainer.innerHTML = '<div class="text-sm text-neutral-400 p-3">Bu tarihte paketleme kaydı bulunamadı.</div>';
       } else {
-        // Build a single grouped column chart (x-axis: 1..15+). Three series: Disk, Kampana, Poyra/Other.
-        // Hide the badge/list views (we only show the chart as requested)
-        if (carryoversEl) carryoversEl.style.display = 'none';
-        if (carryListEl) carryListEl.style.display = 'none';
-        if (carryToggle) carryToggle.style.display = 'none';
+        const activeTypes = [...TYPE_ORDER, 'DIGER'].filter(t => byType[t] > 0);
+        const maxVal = Math.max(...activeTypes.map(t => byType[t] || 0), 1);
 
-        // Normalize series
-        function normalizeType(t) {
-          if (!t) return 'Poyra';
-          const s = String(t).toLowerCase();
-          if (s.includes('disk')) return 'Disk';
-          if (s.includes('kamp')) return 'Kampana';
-          if (s.includes('poy')) return 'Poyra';
-          // unknown types are grouped under Poyra to keep three series consistent
-          return 'Poyra';
-        }
-
-        const seriesNames = ['Disk','Kampana','Poyra'];
-        const seriesMap = { Disk: {}, Kampana: {}, Poyra: {} };
-
-        // fill seriesMap with counts per carryoverValue
-        console.log('Raw carryover data:', carry);
-        carry.forEach(ct => {
-          const name = normalizeType(ct.productType);
-          const buckets = Array.isArray(ct.buckets) ? ct.buckets : [];
-          console.log(`Processing ${ct.productType} -> ${name}, buckets:`, buckets);
-          buckets.forEach(b => {
-            const v = b.carryoverValue;
-            const key = (v >= 15) ? '15+' : String(v);
-            const count = b.count || 0;
-            console.log(`  Bucket: ${v} -> ${key}, count: ${count}`);
-            seriesMap[name][key] = (seriesMap[name][key] || 0) + count;
-          });
+        let chartHtml = '<div class="p-3 bg-neutral-800 rounded mb-3"><div class="text-sm font-semibold text-neutral-300 mb-3">Üretim — Tip Bazlı Dağılım</div>';
+        activeTypes.forEach(t => {
+          const qty = byType[t] || 0;
+          const pct = Math.round((qty / maxVal) * 100);
+          const pctTotal = Math.round((qty / Math.max(totalQty, 1)) * 100);
+          const color = TYPE_COLORS[t] || '#6b7280';
+          chartHtml += `
+            <div class="mb-3">
+              <div class="flex justify-between text-xs mb-1">
+                <span class="font-semibold text-neutral-200">${typeLabel(t)}</span>
+                <span class="text-neutral-400">${qty.toLocaleString('tr-TR')} adet &mdash; %${pctTotal}</span>
+              </div>
+              <div style="height:20px;background:#374151;border-radius:4px;overflow:hidden">
+                <div style="width:${pct}%;height:100%;background:${color};border-radius:4px"></div>
+              </div>
+            </div>`;
         });
-        console.log('Final seriesMap:', seriesMap);
+        chartHtml += '</div>';
+        typesContainer.insertAdjacentHTML('beforeend', chartHtml);
 
-        // build bucket labels 1..14 and 15+
-        const bucketLabels = [];
-        for (let i=1;i<=14;i++) bucketLabels.push(String(i));
-        bucketLabels.push('15+');
-
-        // compute max for scaling
-        let globalMax = 0;
-        bucketLabels.forEach(lbl => {
-          seriesNames.forEach(sn => {
-            const val = seriesMap[sn][lbl] || 0;
-            if (val > globalMax) globalMax = val;
-          });
+        let prodHtml = '<div class="p-3 bg-neutral-800 rounded"><div class="text-sm font-semibold text-neutral-300 mb-2">Ürün Bazlı Dağılım</div>';
+        prodHtml += '<table style="width:100%;border-collapse:collapse"><thead><tr>';
+        ['Tip', 'Ürün Kodu', 'Ürün Adı', 'Adet'].forEach(h => {
+          prodHtml += `<th style="text-align:left;padding:4px 8px;color:#9ca3af;border-bottom:1px solid #374151;font-size:12px">${h}</th>`;
         });
-        if (globalMax === 0) globalMax = 1;
+        prodHtml += '</tr></thead><tbody>';
+        productList.forEach(p => {
+          const tk = typeKey(p.type);
+          const color = TYPE_COLORS[tk] || '#6b7280';
+          prodHtml += `<tr class="hover:bg-neutral-700">
+            <td style="padding:4px 8px"><span style="background:${color};color:white;padding:1px 6px;border-radius:3px;font-size:10px">${escapeHtml(typeLabel(tk))}</span></td>
+            <td style="padding:4px 8px;font-family:monospace;font-size:12px">${escapeHtml(p.productCode)}</td>
+            <td style="padding:4px 8px;font-size:12px">${escapeHtml(p.productName)}</td>
+            <td style="padding:4px 8px;text-align:right;font-weight:600;font-size:12px">${p.quantity.toLocaleString('tr-TR')}</td>
+          </tr>`;
+        });
+        prodHtml += '</tbody></table></div>';
+        typesContainer.insertAdjacentHTML('beforeend', prodHtml);
+      }
 
-        // draw chart
-        if (pyramidEl) {
-          pyramidEl.innerHTML = '';
-          const chartTitle = document.createElement('div');
-          chartTitle.className = 'text-sm text-neutral-300 font-semibold mb-2';
-          chartTitle.innerHTML = `
-            <span>Carryover - 1..15+ Hafta</span>
-            <span class="text-xs text-neutral-500 ml-2 font-normal">💡 Kolonlara tıklayarak detayları görüntüleyin</span>
-          `;
-          pyramidEl.appendChild(chartTitle);
+      // === Faz 8: Devreden siparişler (Orders API) ===
+      const carryoversContainer = container.querySelector('#daily-carryovers-container');
+      const carryoversEl = container.querySelector('#daily-carryovers');
+      if (carryoversContainer && carryoversEl) {
+        carryoversContainer.style.display = 'block';
+        carryoversEl.innerHTML = '<div class="text-xs text-neutral-400 animate-pulse">Devreden siparişler yükleniyor...</div>';
+        try {
+          let allOrders = [];
+          let pg = 1;
+          while (pg <= 5) {
+            const or = await api.get(`/Orders/paged?pageNumber=${pg}&pageSize=100`);
+            const od = ApiResponseHelpers.extractData(or);
+            const items = (od && od.items) ? od.items : [];
+            if (!items.length) break;
+            allOrders = allOrders.concat(items);
+            if (items.length < 100 || !od.hasNextPage) break;
+            pg++;
+          }
 
-          const chartScroll = document.createElement('div');
-          chartScroll.style.overflowX = 'auto';
-          chartScroll.style.paddingBottom = '8px';
-          const chartArea = document.createElement('div');
-          chartArea.style.display = 'flex';
-          chartArea.style.gap = '6px';
-          chartArea.style.alignItems = 'flex-end';
-          chartArea.style.height = '180px';
-          // ensure inner area can grow horizontally when many buckets are shown
-          chartArea.style.minWidth = '600px';
+          const pending = allOrders
+            .map(o => ({ ...o, remaining: (o.orderCount || 0) - (o.completedQuantity || 0) }))
+            .filter(o => o.remaining > 0)
+            .sort((a, b) => (b.carryover || 0) - (a.carryover || 0));
 
-          // create left Y-axis container
-          const axisWrap = document.createElement('div');
-          axisWrap.style.display = 'flex';
-          axisWrap.style.alignItems = 'flex-end';
-          axisWrap.style.marginRight = '8px';
-          axisWrap.style.flexDirection = 'column';
-          axisWrap.style.justifyContent = 'space-between';
-          axisWrap.style.height = '130px';
-          axisWrap.style.width = '40px';
-          axisWrap.style.paddingBottom = '6px';
-          const maxTick = document.createElement('div'); maxTick.className = 'text-xs text-neutral-400'; maxTick.textContent = String(globalMax);
-          const midTick = document.createElement('div'); midTick.className = 'text-xs text-neutral-400'; midTick.textContent = String(Math.ceil(globalMax/2));
-          const zeroTick = document.createElement('div'); zeroTick.className = 'text-xs text-neutral-400'; zeroTick.textContent = '0';
-          axisWrap.appendChild(maxTick); axisWrap.appendChild(midTick); axisWrap.appendChild(zeroTick);
-          // add a thin grid column for alignment
-          const gridCol = document.createElement('div');
-          gridCol.style.width = '1px';
-          gridCol.style.background = 'rgba(255,255,255,0.03)';
-          gridCol.style.marginRight = '6px';
-          // prepend axisWrap + gridCol to chartArea content via wrapper
-          const origChildren = [];
-          while (chartArea.firstChild) origChildren.push(chartArea.removeChild(chartArea.firstChild));
-          chartArea.appendChild(axisWrap);
-          chartArea.appendChild(gridCol);
-          origChildren.forEach(c => chartArea.appendChild(c));
+          const pyramidEl = container.querySelector('#daily-carryover-pyramid');
+          const carryoverList = container.querySelector('#daily-carryover-list');
+          const carryoverToggle = container.querySelector('#daily-carryover-toggle');
+          if (carryoverList) { carryoverList.style.display = 'none'; delete carryoverList.dataset.populated; }
 
-          const colors = { Disk: '#16a34a', Kampana: '#0ea5e9', Poyra: '#f97316', Other: '#94a3b8' };
-
-          bucketLabels.forEach(lbl => {
-            // compute total for this bucket to decide whether to show it
-            const diskVal = seriesMap['Disk'][lbl] || 0;
-            const kampVal = seriesMap['Kampana'][lbl] || 0;
-            const poyVal = seriesMap['Poyra'][lbl] || 0;
-            const bucketTotal = diskVal + kampVal + poyVal;
-            console.log(`Bucket ${lbl}: Disk=${diskVal}, Kampana=${kampVal}, Poyra=${poyVal}, Total=${bucketTotal}`);
-            if (bucketTotal === 0) {
-              // skip zero columns to reduce clutter
-              return;
-            }
-
-            const group = document.createElement('div');
-            group.style.display = 'flex';
-            group.style.flexDirection = 'column';
-            group.style.alignItems = 'center';
-            group.style.width = '48px'; // tighter group width for closer columns
-
-            const barsRow = document.createElement('div');
-            barsRow.style.display = 'flex';
-            barsRow.style.alignItems = 'flex-end';
-            barsRow.style.gap = '2px';
-            barsRow.style.height = '130px';
-
-            // create side-by-side columns for each series (Disk, Kampana, Poyra)
-            seriesNames.forEach(sn => {
-              const val = seriesMap[sn][lbl] || 0;
-              // hide individual columns with zero count for clarity
-
-              if (!val) {
-                const spacer = document.createElement('div');
-                spacer.style.width = '4px';
-                spacer.style.height = '90px';
-                barsRow.appendChild(spacer);
-                return;
-              }
-
-              const col = document.createElement('div');
-              col.style.display = 'flex';
-              col.style.flexDirection = 'column';
-              col.style.alignItems = 'center';
-              col.style.width = '8px';
-
-              // count above the column (only when >0)
-              const topLabel = document.createElement('div');
-              topLabel.className = 'text-xs text-neutral-200';
-              topLabel.style.marginBottom = '6px';
-              topLabel.textContent = String(val);
-
-              // bar container
-              const barOuter = document.createElement('div');
-              barOuter.style.width = '100%';
-              barOuter.style.height = '90px';
-              // lighter container to improve contrast with column colors
-              barOuter.style.background = '#0b1220';
-              barOuter.style.borderRadius = '6px';
-              barOuter.style.overflow = 'hidden';
-              barOuter.style.display = 'flex';
-              barOuter.style.alignItems = 'flex-end';
-              barOuter.style.justifyContent = 'center';
-
-              const barInner = document.createElement('div');
-              const hPct = Math.round((val / globalMax) * 100);
-              barInner.style.height = (hPct) + '%';
-              barInner.style.width = '100%';
-              barInner.style.background = colors[sn] || colors.Other;
-              barInner.style.display = 'block';
-              barInner.title = `${sn} ${lbl}: ${val} (click for details)`;
-              
-              // Make the bar clickable and add hover effects
-              barInner.style.cursor = 'pointer';
-              barInner.style.transition = 'all 0.2s ease';
-              barInner.addEventListener('mouseenter', () => {
-                barInner.style.filter = 'brightness(1.2)';
-                barInner.style.transform = 'scaleY(1.05)';
-              });
-              barInner.addEventListener('mouseleave', () => {
-                barInner.style.filter = 'brightness(1)';
-                barInner.style.transform = 'scaleY(1)';
-              });
-              
-              // Add click handler to show carryover details
-              barInner.addEventListener('click', async () => {
-                await showCarryoverDetails(sn, lbl);
-              });
-
-              barOuter.appendChild(barInner);
-
-              col.appendChild(topLabel);
-              col.appendChild(barOuter);
-              barsRow.appendChild(col);
+          if (pending.length === 0) {
+            carryoversEl.innerHTML = '<div class="text-xs text-neutral-400 p-2">Devreden sipariş bulunamadı.</div>';
+            if (pyramidEl) pyramidEl.innerHTML = '';
+          } else {
+            // Tipe göre özet kartlar
+            const cByType = {};
+            pending.forEach(o => {
+              const t = typeKey(_productTypeCache[o.productCode] || '');
+              if (!cByType[t]) cByType[t] = { count: 0, remaining: 0 };
+              cByType[t].count++;
+              cByType[t].remaining += o.remaining;
             });
 
-            const lblEl = document.createElement('div');
-            lblEl.className = 'text-xs text-neutral-400 mt-2';
-            lblEl.style.textAlign = 'center';
-            lblEl.textContent = lbl;
+            let summaryHtml = `<div class="text-xs text-neutral-400 mb-2">${pending.length} devreden sipariş</div><div class="grid grid-cols-2 gap-2 mb-2">`;
+            Object.entries(cByType).forEach(([t, data]) => {
+              const color = TYPE_COLORS[t] || '#6b7280';
+              summaryHtml += `
+                <div class="p-2 rounded" style="background:#1f2937;border-left:3px solid ${color}">
+                  <div class="text-xs font-semibold" style="color:${color}">${typeLabel(t)}</div>
+                  <div class="text-base font-bold text-neutral-200">${data.count} sipariş</div>
+                  <div class="text-xs text-neutral-400">${data.remaining.toLocaleString('tr-TR')} kalan adet</div>
+                </div>`;
+            });
+            summaryHtml += '</div>';
+            carryoversEl.innerHTML = summaryHtml;
 
-            group.appendChild(barsRow);
-            group.appendChild(lblEl);
-            chartArea.appendChild(group);
-          });
+            // Gecikme haftası piramidi
+            if (pyramidEl) {
+              const wkGroups = {};
+              pending.forEach(o => {
+                const wk = o.carryover || 0;
+                const k = wk >= 15 ? '15+' : String(wk);
+                wkGroups[k] = (wkGroups[k] || 0) + 1;
+              });
+              const maxWk = Math.max(...Object.values(wkGroups), 1);
+              const sortedWks = Object.keys(wkGroups).sort((a, b) =>
+                (a === '15+' ? 999 : Number(a)) - (b === '15+' ? 999 : Number(b)));
 
-          chartScroll.appendChild(chartArea);
-          pyramidEl.appendChild(chartScroll);
-
-          // legend with clickable product types
-          const legend = document.createElement('div');
-          legend.className = 'mt-2 flex gap-4 text-sm items-center flex-wrap';
-          seriesNames.forEach(sn => {
-            const entry = document.createElement('div');
-            entry.className = 'flex items-center gap-2';
-            
-            // Check if this product type has any carryover data
-            const hasData = Object.keys(seriesMap[sn]).some(key => seriesMap[sn][key] > 0);
-            
-            if (hasData) {
-              // Make the product type clickable
-              entry.innerHTML = `
-                <span style="display:inline-block;width:12px;height:12px;background:${colors[sn]};border-radius:2px"></span>
-                <span class="cursor-pointer hover:text-white hover:underline transition-colors" onclick="showAllCarryoverOrders('${sn}')" title="Tüm ${sn} carryover siparişlerini görmek için tıklayın">${sn}</span>
-              `;
-            } else {
-              // Non-clickable for types without data
-              entry.innerHTML = `
-                <span style="display:inline-block;width:12px;height:12px;background:${colors[sn]};border-radius:2px"></span>
-                <span class="text-neutral-500">${sn}</span>
-              `;
+              let pyHtml = '<div class="text-xs font-semibold text-neutral-400 mb-2">Gecikme Dağılımı (Hafta)</div>';
+              pyHtml += '<div class="flex items-end gap-1" style="height:80px">';
+              sortedWks.forEach(wk => {
+                const cnt = wkGroups[wk];
+                const h = Math.max(8, Math.round((cnt / maxWk) * 68));
+                pyHtml += `<div class="flex flex-col items-center flex-1">
+                  <div class="text-xs text-neutral-400 mb-1">${cnt}</div>
+                  <div style="height:${h}px;width:100%;background:#ef4444;border-radius:2px 2px 0 0;cursor:pointer"
+                       onclick="showCarryoverDetails('TÜM','${escapeHtml(wk)}')"
+                       title="${escapeHtml(wk)} hafta: ${cnt} sipariş"></div>
+                  <div class="text-xs text-neutral-500 mt-1">${escapeHtml(wk)}h</div>
+                </div>`;
+              });
+              pyHtml += '</div>';
+              pyramidEl.innerHTML = pyHtml;
             }
-            
-            legend.appendChild(entry);
-          });
-          pyramidEl.appendChild(legend);
+
+            // Toggle listesi
+            if (carryoverToggle && carryoverList) {
+              carryoverToggle.onclick = () => {
+                const visible = carryoverList.style.display !== 'none';
+                carryoverList.style.display = visible ? 'none' : 'block';
+                carryoverToggle.textContent = visible ? 'Geciken Siparişleri Göster' : 'Geciken Siparişleri Gizle';
+                if (!visible && !carryoverList.dataset.populated) {
+                  carryoverList.innerHTML = generateCarryoverOrdersTable(pending, true);
+                  carryoverList.dataset.populated = '1';
+                }
+              };
+            }
+          }
+        } catch (e) {
+          console.warn('Carryover orders load failed', e);
+          carryoversEl.innerHTML = '<div class="text-xs text-rose-400 p-2">Devreden siparişler yüklenemedi.</div>';
         }
       }
 
-      // toggle button for delayed list
-      if (carryToggle && carryListEl) {
-        carryToggle.onclick = () => {
-          const shown = carryListEl.style.display !== 'none';
-          carryListEl.style.display = shown ? 'none' : 'block';
-          carryToggle.textContent = shown ? 'Geciken Siparişleri Göster' : 'Gizle';
-        };
-      }
-
-      // Shipments grouped by type: combined/domestic/abroad
+      // === Faz 9: Sağ sütun — vardiya detay tablosu ===
       const shipmentsEl = container.querySelector('#daily-shipments');
       shipmentsEl.innerHTML = '';
-  const domestic = shipmentTotals.domestic || {};
-  const abroad = shipmentTotals.abroad || {};
-      const makeCard = (title, totals, count) => {
-        const c = document.createElement('div');
-        c.className = 'mb-3 p-3 bg-neutral-800 rounded flex items-center justify-between';
-        c.innerHTML = `
-          <div>
-            <div class="flex items-center gap-2">
-              <svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h2l.4 2M7 7h10l1 5H6l1-5zm4 10a2 2 0 100-4 2 2 0 000 4z"></path></svg>
-              <div class="text-sm text-neutral-400">${escapeHtml(title)}</div>
-            </div>
-            <div class="text-sm text-neutral-500 mt-1">Disk: ${totals.diskTotal ?? 0} · Kampana: ${totals.kampanaTotal ?? 0} · Poyra: ${totals.poyraTotal ?? 0}</div>
-          </div>
-          <div class="text-right">
-            <div class="text-lg font-bold">${totals.combinedTotal ?? 0}</div>
-            <div class="text-xs text-neutral-500">${count} sevkiyat</div>
-          </div>
-        `;
-        return c;
-      };
+      if (records.length > 0) {
+        const tableCard = document.createElement('div');
+        tableCard.className = 'p-3 bg-neutral-800 rounded';
+        let html = '<div class="text-sm font-semibold text-neutral-300 mb-2">Vardiya Detayları</div>';
+        html += '<div class="overflow-x-auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>';
+        ['Vardiya', 'Ürün Kodu', 'Ürün Adı', 'Adet', 'Kaynaktan', 'Hedefe', 'Sorumlu'].forEach(h => {
+          html += `<th style="text-align:left;padding:4px 8px;color:#9ca3af;border-bottom:1px solid #374151">${h}</th>`;
+        });
+        html += '</tr></thead><tbody>';
+        records.forEach(r => {
+          html += `<tr class="hover:bg-neutral-700">
+            <td style="padding:4px 8px">${escapeHtml(r.shift || '-')}</td>
+            <td style="padding:4px 8px;font-family:monospace">${escapeHtml(r.productCode || '-')}</td>
+            <td style="padding:4px 8px">${escapeHtml(r.productName || '-')}</td>
+            <td style="padding:4px 8px;text-align:right">${r.quantity || 0}</td>
+            <td style="padding:4px 8px">${escapeHtml(r.explodedFrom || '-')}</td>
+            <td style="padding:4px 8px">${escapeHtml(r.explodingTo || '-')}</td>
+            <td style="padding:4px 8px">${escapeHtml(r.supervisor || '-')}</td>
+          </tr>`;
+        });
+        html += '</tbody></table></div>';
+        tableCard.innerHTML = html;
+        shipmentsEl.appendChild(tableCard);
+      } else {
+        shipmentsEl.innerHTML = '<div class="text-sm text-neutral-400 p-3">Sevkiyat kaydı bulunamadı.</div>';
+      }
 
-      // count shipments per category (simple heuristic: payload.shipments may include flags)
-      const shipments = Array.isArray(payload.shipments) ? payload.shipments : [];
-      const cnt = { combined: 0, domestic: 0, abroad: 0 };
-      shipments.forEach(s => {
-        if (s.abroad) cnt.abroad++; else if (s.domestic) cnt.domestic++; else cnt.combined++;
-      });
-
-  // Only show Domestic and Abroad cards
-  shipmentsEl.appendChild(makeCard('Yurtiçi (Domestic)', domestic, cnt.domestic));
-  shipmentsEl.appendChild(makeCard('Yurtdışı (Abroad)', abroad, cnt.abroad));
-
-  // expose lastPayload to outer scope for export buttons
-  container._lastDailyPayload = payload;
+      container._lastDailyPayload = { date: dateIso, records, totalQty, byDest, byType, productList };
 
     } catch (err) {
       console.error('loadDaily error', err);
-      showToast('Günlük rapor yüklenirken hata oluştu', 'error');
+      showToast('Günlük rapor yüklenirken hata oluştu: ' + (err.message || ''), 'error');
+      typesContainer.innerHTML = `<div class="text-rose-400 p-3">Hata: ${escapeHtml(err.message || 'Bilinmeyen hata')}</div>`;
     }
   }
 
@@ -891,75 +733,43 @@ export async function mount(container, opts = {}) {
       return s;
     }
 
-    rows.push(['Date', payload.date || ''].map(esc).join(','));
-    // production totals
-    const prod = payload.production || {};
-    rows.push(['Production Total', prod.totalQuantity ?? prod.total ?? 0].map(esc).join(','));
-    // production per-type and products
+    rows.push(['Günlük Paketleme Raporu', payload.date || ''].map(esc).join(','));
+    rows.push(['Toplam Adet', payload.totalQty ?? 0].map(esc).join(','));
+    rows.push(['Kayıt Sayısı', (payload.records || []).length].map(esc).join(','));
     rows.push([]);
-    rows.push(['Production by Type'].map(esc).join(','));
-    rows.push(['Type','ProductCode','ProductName','Quantity'].map(esc).join(','));
-    const groups = Array.isArray(prod.typeGroups) ? prod.typeGroups : [];
-    if (groups.length) {
-      groups.forEach(g => {
-        const typeName = g.typeName || '';
-        const products = Array.isArray(g.products) ? g.products : [];
-        if (products.length) {
-          products.forEach(p => {
-            rows.push([typeName, p.productCode ?? '', p.productName ?? '', p.quantity ?? 0].map(esc).join(','));
-          });
-        } else {
-          rows.push([typeName, '', '', g.totalQuantity ?? 0].map(esc).join(','));
-        }
-      });
-    } else if (payload.productionTotals) {
-      const pt = payload.productionTotals;
-      rows.push(['Disk','', '', pt.diskTotal ?? 0].map(esc).join(','));
-      rows.push(['Kampana','', '', pt.kampanaTotal ?? 0].map(esc).join(','));
-      rows.push(['Poyra','', '', pt.poyraTotal ?? 0].map(esc).join(','));
-    }
 
+    // Product breakdown
+    rows.push(['Ürün Bazlı Dağılım'].map(esc).join(','));
+    rows.push(['Ürün Kodu', 'Ürün Adı', 'Adet'].map(esc).join(','));
+    (payload.productList || []).forEach(p => {
+      rows.push([p.productCode || '', p.productName || '', p.quantity || 0].map(esc).join(','));
+    });
     rows.push([]);
-    rows.push(['Shipments'].map(esc).join(','));
-    rows.push(['Id','Date','Disk','Kampana','Poyra','Abroad','Domestic'].map(esc).join(','));
-    const shipments = Array.isArray(payload.shipments) ? payload.shipments : [];
-    shipments.forEach(s => {
+
+    // Destination breakdown
+    rows.push(['Hedef Bazlı Dağılım'].map(esc).join(','));
+    rows.push(['Hedef', 'Adet'].map(esc).join(','));
+    Object.entries(payload.byDest || {}).forEach(([k, v]) => {
+      rows.push([k, v].map(esc).join(','));
+    });
+    rows.push([]);
+
+    // All records
+    rows.push(['Tüm Kayıtlar'].map(esc).join(','));
+    rows.push(['ID', 'Tarih', 'Vardiya', 'Ürün Kodu', 'Ürün Adı', 'Adet', 'Kaynaktan', 'Hedefe', 'Sorumlu'].map(esc).join(','));
+    (payload.records || []).forEach(r => {
       rows.push([
-        s.id ?? '',
-        s.date ? new Date(s.date).toISOString() : '',
-        s.disk ?? 0,
-        s.kampana ?? 0,
-        s.poyra ?? 0,
-        Boolean(s.abroad),
-        Boolean(s.domestic)
+        r.id || '',
+        r.date ? new Date(r.date).toISOString().slice(0, 10) : '',
+        r.shift || '',
+        r.productCode || '',
+        r.productName || '',
+        r.quantity || 0,
+        r.explodedFrom || '',
+        r.explodingTo || '',
+        r.supervisor || ''
       ].map(esc).join(','));
     });
-
-    // totals at bottom
-    const st = payload.shipmentTotals || {};
-    const combined = st.combined || {};
-    const domestic = st.domestic || {};
-    const abroad = st.abroad || {};
-    rows.push([]);
-    // Show totals as Domestic+Abroad (omit Combined per request)
-    const domTotal = domestic.combinedTotal ?? domestic.total ?? 0;
-    const abTotal = abroad.combinedTotal ?? abroad.total ?? 0;
-    rows.push(['Shipment Totals', 'Domestic', domTotal].map(esc).join(','));
-    rows.push(['Shipment Totals', 'Abroad', abTotal].map(esc).join(','));
-
-    // Add carryoverCounts into CSV
-    const carry = Array.isArray(payload.carryoverCounts) ? payload.carryoverCounts : [];
-    if (carry.length) {
-      rows.push([]);
-      rows.push(['Carryover Counts'].map(esc).join(','));
-      rows.push(['ProductType','CarryoverValue','Count'].map(esc).join(','));
-      carry.forEach(ct => {
-        const buckets = Array.isArray(ct.buckets) ? ct.buckets : [];
-        buckets.forEach(b => {
-          rows.push([ct.productType || '', b.carryoverValue ?? '', b.count ?? 0].map(esc).join(','));
-        });
-      });
-    }
 
     return rows.join('\r\n');
   }
@@ -985,39 +795,35 @@ export async function mount(container, opts = {}) {
   function exportPdf() {
     const payload = container._lastDailyPayload;
     if (!payload) { showToast('Export için veri yok', 'warning'); return; }
-    // build a simple printable HTML
-    const d = new Date(payload.date || Date.now()).toISOString().slice(0,10);
-    // prepare shipment total as Domestic + Abroad
-    const st = payload.shipmentTotals || {};
-    const domestic = st.domestic || {};
-    const abroad = st.abroad || {};
-    const domTotal = domestic.combinedTotal ?? domestic.total ?? 0;
-    const abTotal = abroad.combinedTotal ?? abroad.total ?? 0;
-    const shipmentsSum = domTotal + abTotal;
+    const d = payload.date || new Date().toISOString().slice(0, 10);
 
-    // carryover summary as simple table
-    const carryRows = (Array.isArray(payload.carryoverCounts) ? payload.carryoverCounts : []).map(ct => {
-      const total = (Array.isArray(ct.buckets) ? ct.buckets : []).reduce((s,b)=> s + (b.count||0), 0);
-      return `<tr><td>${escapeHtml(ct.productType||'')}</td><td style="text-align:right">${total}</td></tr>`;
-    }).join('');
+    const productRows = (payload.productList || []).map(p =>
+      `<tr><td>${escapeHtml(p.productCode || '')}</td><td>${escapeHtml(p.productName || '')}</td><td style="text-align:right">${p.quantity || 0}</td></tr>`
+    ).join('');
 
-    const html = `
-      <html><head><title>Günlük Rapor ${d}</title><style>body{font-family:Arial,Helvetica,sans-serif;color:#111;background:white} table{border-collapse:collapse;width:100%} td,th{border:1px solid #ddd;padding:6px}</style></head><body>
-      <h2>Günlük Rapor - ${d}</h2>
-      <div class="card"><strong>Üretim Toplam:</strong> ${payload.production?.totalQuantity ?? 0}</div>
-      <div class="card"><strong>Sevkiyat Toplam (Domestic+Abroad):</strong> ${shipmentsSum}</div>
-      <div class="card"><h3>Carryover Summary</h3>
-        <table><thead><tr><th>Product Type</th><th style="text-align:right">Total Carryover</th></tr></thead><tbody>
-        ${carryRows || '<tr><td colspan="2">No carryover data</td></tr>'}
-        </tbody></table>
-      </div>
-      </body></html>
-    `;
+    const destRows = Object.entries(payload.byDest || {}).map(([k, v]) =>
+      `<tr><td>${escapeHtml(k)}</td><td style="text-align:right">${v}</td></tr>`
+    ).join('');
+
+    const html = `<html><head><title>Günlük Rapor ${d}</title>
+      <style>body{font-family:Arial,Helvetica,sans-serif;color:#111;background:white} h2{margin-bottom:8px} table{border-collapse:collapse;width:100%;margin-bottom:16px} td,th{border:1px solid #ddd;padding:6px} th{background:#f5f5f5}</style>
+      </head><body>
+      <h2>Günlük Paketleme Raporu - ${d}</h2>
+      <p><strong>Toplam Adet:</strong> ${payload.totalQty ?? 0} &nbsp;&nbsp; <strong>Kayıt Sayısı:</strong> ${(payload.records || []).length}</p>
+      <h3>Ürün Bazlı Dağılım</h3>
+      <table><thead><tr><th>Ürün Kodu</th><th>Ürün Adı</th><th>Adet</th></tr></thead><tbody>
+        ${productRows || '<tr><td colspan="3">Veri yok</td></tr>'}
+      </tbody></table>
+      <h3>Hedef Bazlı Dağılım</h3>
+      <table><thead><tr><th>Hedef</th><th>Adet</th></tr></thead><tbody>
+        ${destRows || '<tr><td colspan="2">Veri yok</td></tr>'}
+      </tbody></table>
+      </body></html>`;
     const w = window.open('', '_blank');
+    if (!w) { showToast('Pop-up engelleyici açık, PDF önizlemesi açılamadı', 'warning'); return; }
     w.document.write(html);
     w.document.close();
     w.focus();
-    // let user print to PDF via browser/Electron
   }
 
   // Wire export buttons
